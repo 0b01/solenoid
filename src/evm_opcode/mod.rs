@@ -25,7 +25,7 @@ pub use instructions::Instruction;
 
 #[derive(Clone, Debug)]
 pub struct Disassembly {
-    pub instructions: Vec<(usize, Instruction)>,
+    pub instructions: Vec<Instruction>,
 }
 
 impl Disassembly {
@@ -48,7 +48,7 @@ pub fn assemble_instructions(disassembly: Vec<Instruction>) -> Vec<u8> {
     result
 }
 
-fn disassemble_hex_str(input: &str) -> Result<Vec<(usize, Instruction)>, DisassemblyError> {
+fn disassemble_hex_str(input: &str) -> Result<Vec<Instruction>, DisassemblyError> {
     let input = if input[0..2] == *"0x" {
         &input[2..]
     } else {
@@ -58,7 +58,7 @@ fn disassemble_hex_str(input: &str) -> Result<Vec<(usize, Instruction)>, Disasse
     disassemble_bytes(&bytes)
 }
 
-fn disassemble_bytes(bytes: &[u8]) -> Result<Vec<(usize, Instruction)>, DisassemblyError> {
+fn disassemble_bytes(bytes: &[u8]) -> Result<Vec<Instruction>, DisassemblyError> {
     let mut instructions = Vec::new();
     let mut cursor = Cursor::new(bytes);
     loop {
@@ -66,7 +66,7 @@ fn disassemble_bytes(bytes: &[u8]) -> Result<Vec<(usize, Instruction)>, Disassem
         match result {
             Err(DisassemblyError::IOError(..)) => break,
             Ok((offset, instruction)) => {
-                instructions.push((offset, instruction));
+                instructions.push(instruction);
             }
             Err(err) => {
                 if let DisassemblyError::TooFewBytesForPush = err {

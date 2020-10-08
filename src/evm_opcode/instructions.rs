@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::opcode::error::DisassemblyError;
+use crate::evm_opcode::error::DisassemblyError;
 use std::io::{self, Cursor, Read};
 
 pub fn assemble(disassembly: Vec<Instruction>) -> Vec<u8> {
