@@ -1,5 +1,5 @@
 [package]
-name = "evm2bpf"
+name = "libsolenoid"
 version = "0.1.0"
 authors = ["Ricky Han <liha@microsoft.com>"]
 edition = "2018"
@@ -9,4 +9,4 @@ edition = "2018"
 [dependencies]
 rsevmasm = "0.5.0"
 hex = "*"
-solana_rbpf = "0.1.31"
+inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm10-0"] }
