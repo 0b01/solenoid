@@ -1,13 +1,15 @@
 use crate::evm_opcode::Instruction;
 
 use inkwell::AddressSpace;
-use inkwell::values::{FunctionValue, GlobalValue, IntMathValue, BasicValueEnum};
-use inkwell::types::{IntType};
+use inkwell::values::{FunctionValue, GlobalValue, IntMathValue, BasicValueEnum, VectorValue};
+use inkwell::types::{IntType, VectorType};
 use inkwell::OptimizationLevel;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
 use inkwell::module::Module;
+
+const DEBUG: bool = true;
 
 fn nibble_to_u64(vals: &[u8]) -> Vec<u64> {
     vals.iter().map(|i| *i as u64).collect()
@@ -21,6 +23,7 @@ pub struct Compiler<'a, 'ctx> {
     sp: Option<GlobalValue<'ctx>>,
     stack: Option<GlobalValue<'ctx>>,
     fun: Option<FunctionValue<'ctx>>,
+    dump_stack: Option<FunctionValue<'ctx>>,
 }
 
 
@@ -45,6 +48,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             sp: None,
             stack: None,
             fun: None,
+            dump_stack: None,
         };
 
         compiler.build_stack(builder);
@@ -52,7 +56,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             compiler.build_instr(instr, builder);
         }
         compiler.build_ret(builder);
-        compiler.dbg();
         compiler
     }
 
@@ -66,6 +69,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let i64_ty = self.context.i64_type();
         let i256_arr_ty = self.i256_ty.array_type(1024); // .zero (256 / 8 * size)
 
+        // dump_stack
+        let str_ty = inkwell::types::BasicTypeEnum::PointerType(self.context.i8_type().ptr_type(AddressSpace::Generic));
+        let fn_ty = self.context.void_type().fn_type(&[str_ty],false);
+        let dump_stack = self.module.add_function("dump_stack", fn_ty, Some(inkwell::module::Linkage::External));
+        self.dump_stack = Some(dump_stack);
+
         let stack = self.module.add_global(i256_arr_ty, Some(AddressSpace::Generic), "stack");
         let sp = self.module.add_global(i64_ty, Some(AddressSpace::Generic), "sp");
         sp.set_initializer(&i64_ty.const_int(0, false));
@@ -76,6 +85,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         let fn_type = self.context.void_type().fn_type(&[], false);
         let function = self.module.add_function("contract", fn_type, None);
+
 
         let basic_block = self.context.append_basic_block(function, "entry");
         builder.position_at_end(basic_block);
@@ -94,6 +104,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let basic_block = self.context.append_basic_block(function, name);
         builder.build_unconditional_branch(basic_block);
         builder.position_at_end(basic_block);
+    }
+
+    pub fn dump_stack(&self, name: &str, builder: &'a Builder<'ctx>) {
+        if DEBUG {
+            let s = unsafe {
+                builder.build_global_string(name, "str")
+                    .as_pointer_value()
+                    .const_cast(
+                        self.context.i8_type().ptr_type(AddressSpace::Generic)) };
+            builder.build_call(self.dump_stack.unwrap(), &[s.into()], "dump");
+        }
     }
 
     /// Pop a value off stack
@@ -214,6 +235,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let ret = builder.build_int_sub(a, b, "sub");
                 let value = BasicValueEnum::IntValue(ret);
                 self.build_push(builder, value, "sub");
+                self.dump_stack("sub", builder);
                 value
             }
             Instruction::Div => {
@@ -225,6 +247,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let ret = builder.build_int_unsigned_div(a, b, "div"); // TODO: verify
                 let value = BasicValueEnum::IntValue(ret);
                 self.build_push(builder, value, "div");
+                self.dump_stack("div", builder);
                 value
             }
             Instruction::Mul => {
@@ -236,6 +259,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let ret = builder.build_int_mul(a, b, "mul"); // TODO: verify
                 let value = BasicValueEnum::IntValue(ret);
                 self.build_push(builder, value, "mul");
+                self.dump_stack("mul", builder);
                 value
             }
             Instruction::Add => {
@@ -247,18 +271,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let ret = builder.build_int_add(a, b, "add");
                 let value = BasicValueEnum::IntValue(ret);
                 self.build_push(builder, value, "add");
+                self.dump_stack("add", builder);
                 value
             }
             Instruction::Pop => {
                 self.label("pop", builder);
-                self.build_pop(builder, "")
+                let ret = self.build_pop(builder, "");
+                self.dump_stack("pop", builder);
+                ret
             }
             Instruction::Push(vals) => {
                 self.label("push", builder);
 
                 let value = self.i256_ty.const_int_arbitrary_precision(&nibble_to_u64(vals));
                 self.build_push(builder, BasicValueEnum::IntValue(value), "");
-                BasicValueEnum::IntValue(value)
+                self.dump_stack("push", builder);
+                return BasicValueEnum::IntValue(value);
             }
         }
     }
@@ -278,13 +306,23 @@ mod tests {
         let builder = context.create_builder();
         let function = context.create_builder();
 
+         // (5 - 2) * 3
         let instrs = vec![
-            Instruction::Push(vec![2]), // (5 - 2) * 3
+            Instruction::Push(vec![2]),
             Instruction::Push(vec![5]),
             Instruction::Sub,
+            Instruction::Push(vec![3]),
+            Instruction::Mul,
+            Instruction::Push(vec![0xAA]),
+            Instruction::Push(vec![0xAA]),
+            Instruction::Push(vec![0xAA]),
+            Instruction::Push(vec![0xAA]),
+            Instruction::Push(vec![0xAA]),
+            Instruction::Push(vec![0xAA]),
         ];
 
-        let ret = Compiler::compile(&context, &builder, &module, &instrs);
-        ret.write_ir("out.ll");
+        let compiler = Compiler::compile(&context, &builder, &module, &instrs);
+        // compiler.dbg();
+        compiler.write_ir("out.ll");
     }
 }
