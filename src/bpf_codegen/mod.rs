@@ -25,12 +25,16 @@ pub struct BpfCodeGen<'a, 'ctx> {
 
 
 impl<'a, 'ctx> BpfCodeGen<'a, 'ctx> {
+    pub fn write_ir(&self, filename: &str) {
+        self.module.print_to_file(filename);
+    }
+
     pub fn compile(
         context: &'ctx Context,
         builder: &'a Builder<'ctx>,
         module: &'a Module<'ctx>,
         instrs: &[Instruction],
-    ) -> () {
+    ) -> Self {
         let mut compiler = Self {
             context,
             i256_ty: context.custom_width_int_type(256),
@@ -44,6 +48,7 @@ impl<'a, 'ctx> BpfCodeGen<'a, 'ctx> {
         compiler.gen(instrs, builder);
         compiler.build_ret(builder);
         compiler.dbg();
+        compiler
     }
 
     pub fn build_ret(&self, builder: &'a Builder<'ctx>) {
@@ -52,7 +57,7 @@ impl<'a, 'ctx> BpfCodeGen<'a, 'ctx> {
 
     pub fn build_stack(&mut self, builder: &'a Builder<'ctx>) {
         let i64_ty = self.context.i64_type();
-        let i256_arr_ty = self.i256_ty.array_type(1024);
+        let i256_arr_ty = self.i256_ty.array_type(1024); // .zero (256 / 8 * size)
 
         let stack = self.module.add_global(i256_arr_ty, Some(AddressSpace::Generic), "stack");
         let sp = self.module.add_global(i64_ty, Some(AddressSpace::Generic), "sp");
@@ -117,7 +122,8 @@ impl<'a, 'ctx> BpfCodeGen<'a, 'ctx> {
         builder.build_store(sp_ptr, sp); 
         let stack = self.stack.unwrap().as_pointer_value();
         let addr = unsafe { builder.build_gep(stack, &[sp], "stack") };
-        builder.build_store(addr, value);
+        let arr = builder.build_load(addr, "arr").into_array_value();
+        builder.build_insert_value(arr, value, 0, "tos");
         value
     }
 
@@ -238,11 +244,12 @@ mod tests {
         let function = context.create_builder();
 
         let instrs = vec![
-            Instruction::Push(vec![0]),
+            Instruction::Push(vec![1]),
             Instruction::Push(vec![1]),
             Instruction::Add,
         ];
 
-        BpfCodeGen::compile(&context, &builder, &module, &instrs);
+        let ret = BpfCodeGen::compile(&context, &builder, &module, &instrs);
+        ret.write_ir("out.ir");
     }
 }
