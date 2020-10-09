@@ -100,35 +100,34 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     pub fn build_pop(&self, builder: &'a Builder<'ctx>, label: &str) -> BasicValueEnum<'ctx> {
         self.label(&format!("{}_pop", label), builder);
         let sp_ptr = self.sp.unwrap().as_pointer_value();
-        let sp = builder.build_load(sp_ptr, "sp");
-        let stack = self.stack.unwrap().as_pointer_value();
-
-        let addr = unsafe { builder.build_gep(stack, &[sp.into_int_value()], "stack") };
-        let arr = builder.build_load(addr, "arr").into_array_value();
-        let tos = builder.build_extract_value(arr, 0, "tos").unwrap();
-
+        let sp = builder.build_load(sp_ptr, "sp").into_int_value();
         let sp = builder.build_int_sub(
-            sp.into_int_value(),
+            sp,
             self.context.i64_type().const_int(1, false),
-            "spsub");
+            "sp");
         builder.build_store(sp_ptr, sp); 
-        tos
+
+        let stack = self.stack.unwrap().as_pointer_value();
+        let addr = unsafe { builder.build_in_bounds_gep(stack, &[self.context.i64_type().const_zero(), sp], "stack") };
+        let ret = builder.build_load(addr, "arr");
+        ret
     }
 
-    /// Push a value off stack
+    /// Push a value onto stack
     pub fn build_push(&self, builder: &'a Builder<'ctx>, value: BasicValueEnum<'ctx>, label: &str) -> BasicValueEnum<'ctx> {
         self.label(&format!("{}_push", label), builder);
         let sp_ptr = self.sp.unwrap().as_pointer_value();
-        let sp = builder.build_load(sp_ptr, "sp");
-        let sp = builder.build_int_add(
-            sp.into_int_value(),
-            self.context.i64_type().const_int(1, false),
-            "spsub");
-        builder.build_store(sp_ptr, sp); 
+        let sp = builder.build_load(sp_ptr, "sp").into_int_value();
+
         let stack = self.stack.unwrap().as_pointer_value();
-        let addr = unsafe { builder.build_gep(stack, &[sp], "stack") };
-        let arr = builder.build_load(addr, "arr").into_array_value();
-        builder.build_insert_value(arr, value, 0, "tos");
+        let addr = unsafe { builder.build_in_bounds_gep(stack, &[self.context.i64_type().const_zero(), sp], "stack") };
+        builder.build_store(addr, value);
+
+        let sp = builder.build_int_add(
+            sp,
+            self.context.i64_type().const_int(1, false),
+            "sp");
+        builder.build_store(sp_ptr, sp); 
         value
     }
 
@@ -136,9 +135,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     pub fn build_instr(&self, instr: &Instruction, builder: &'a Builder<'ctx>) -> BasicValueEnum<'ctx> {
         match instr {
             Instruction::Stop |
-            Instruction::Mul |
-            Instruction::Sub |
-            Instruction::Div |
             Instruction::SDiv |
             Instruction::Mod |
             Instruction::SMod |
@@ -209,13 +205,46 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::SelfDestruct => {
                 BasicValueEnum::IntValue(self.context.i8_type().const_zero())
             }
+            Instruction::Sub => {
+                self.label("sub", builder);
+                let a = self.build_pop(builder, "sub").into_int_value();
+                let b = self.build_pop(builder, "sub").into_int_value();
+
+                self.label("sub_actual", builder);
+                let ret = builder.build_int_sub(a, b, "sub");
+                let value = BasicValueEnum::IntValue(ret);
+                self.build_push(builder, value, "sub");
+                value
+            }
+            Instruction::Div => {
+                self.label("div", builder);
+                let a = self.build_pop(builder, "div").into_int_value();
+                let b = self.build_pop(builder, "div").into_int_value();
+
+                self.label("div_actual", builder);
+                let ret = builder.build_int_unsigned_div(a, b, "div"); // TODO: verify
+                let value = BasicValueEnum::IntValue(ret);
+                self.build_push(builder, value, "div");
+                value
+            }
+            Instruction::Mul => {
+                self.label("mul", builder);
+                let a = self.build_pop(builder, "mul").into_int_value();
+                let b = self.build_pop(builder, "mul").into_int_value();
+
+                self.label("mul_actual", builder);
+                let ret = builder.build_int_mul(a, b, "mul"); // TODO: verify
+                let value = BasicValueEnum::IntValue(ret);
+                self.build_push(builder, value, "mul");
+                value
+            }
             Instruction::Add => {
                 self.label("add", builder);
-                let a = self.build_pop(builder, "add");
-                let b = self.build_pop(builder, "add");
+                let a = self.build_pop(builder, "add").into_int_value();
+                let b = self.build_pop(builder, "add").into_int_value();
 
                 self.label("add_actual", builder);
-                let ret = builder.build_int_add(a.into_int_value(), b.into_int_value(), "add");
+                let ret = builder.build_int_add(a, b, "add");
                 let value = BasicValueEnum::IntValue(ret);
                 self.build_push(builder, value, "add");
                 value
@@ -250,12 +279,12 @@ mod tests {
         let function = context.create_builder();
 
         let instrs = vec![
-            Instruction::Push(vec![1]),
-            Instruction::Push(vec![1]),
-            Instruction::Add,
+            Instruction::Push(vec![2]), // (5 - 2) * 3
+            Instruction::Push(vec![5]),
+            Instruction::Sub,
         ];
 
         let ret = Compiler::compile(&context, &builder, &module, &instrs);
-        ret.write_ir("out.ir");
+        ret.write_ir("out.ll");
     }
 }

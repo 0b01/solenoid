@@ -1,4 +1,4 @@
 /target
 Cargo.lock
-out.ir
-out.s
+out.*
+a.out
