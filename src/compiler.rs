@@ -119,9 +119,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Function call to dump_stack
-    pub fn dump_stack(&self, builder: &'a Builder<'ctx>) {
+    fn build_dump_stack(&self, builder: &'a Builder<'ctx>) {
         if DEBUG {
-            let mut s = self.label_stack.borrow_mut();
+            let s = self.label_stack.borrow_mut();
             let lbl_name = s.join("_");
             let s = unsafe {
                 builder.build_global_string(&lbl_name, "str")
@@ -207,7 +207,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     /// Build instruction
     fn build_instr(&self, instr: &Instruction, builder: &'a Builder<'ctx>) -> BasicValueEnum<'ctx> {
-        match instr {
+        let ret = match instr {
             Instruction::Stop |
             Instruction::SDiv |
             Instruction::Mod |
@@ -286,14 +286,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let a = self.build_peek(builder, sp, 1).into_int_value();
                 let b = self.build_peek(builder, sp, 2).into_int_value();
                 let sp = self.build_decr(builder, sp, 2);
-
-                self.pop_label();
-                self.push_label("sub_actual", builder);
                 let ret = builder.build_int_sub(a, b, name);
                 let value = BasicValueEnum::IntValue(ret);
                 self.build_push(builder, value, sp);
-                self.dump_stack(builder);
-                self.pop_label();
                 value
             }
             Instruction::Div => {
@@ -303,14 +298,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let a = self.build_peek(builder, sp, 1).into_int_value();
                 let b = self.build_peek(builder, sp, 2).into_int_value();
                 let sp = self.build_decr(builder, sp, 2);
-                self.pop_label();
-
-                self.push_label("div_actual", builder);
                 let ret = builder.build_int_unsigned_div(a, b, name); // TODO: verify
                 let value = BasicValueEnum::IntValue(ret);
                 self.build_push(builder, value, sp);
-                self.dump_stack(builder);
-                self.pop_label();
                 value
             }
             Instruction::Mul => {
@@ -320,14 +310,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let a = self.build_peek(builder, sp, 1).into_int_value();
                 let b = self.build_peek(builder, sp, 2).into_int_value();
                 let sp = self.build_decr(builder, sp, 2);
-                self.pop_label();
-
-                self.push_label("mul_actual", builder);
                 let ret = builder.build_int_mul(a, b, name); // TODO: verify
                 let value = BasicValueEnum::IntValue(ret);
                 self.build_push(builder, value, sp);
-                self.dump_stack(builder);
-                self.pop_label();
                 value
             }
             Instruction::Add => {
@@ -337,14 +322,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let a = self.build_peek(builder, sp, 1).into_int_value();
                 let b = self.build_peek(builder, sp, 2).into_int_value();
                 let sp = self.build_decr(builder, sp, 2);
-                self.pop_label();
-
-                self.push_label("add_actual", builder);
                 let ret = builder.build_int_add(a, b, name);
                 let value = BasicValueEnum::IntValue(ret);
                 self.build_push(builder, value, sp);
-                self.dump_stack(builder);
-                self.pop_label();
                 value
             }
             Instruction::Pop => {
@@ -352,21 +332,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
                 let ret = self.build_pop(builder, sp);
-                self.dump_stack(builder);
-                self.pop_label();
                 ret
             }
             Instruction::Push(vals) => {
                 self.push_label("push", builder);
-
                 let sp = self.build_sp(builder);
                 let value = self.i256_ty.const_int_arbitrary_precision(&nibble_to_u64(vals));
                 self.build_push(builder, BasicValueEnum::IntValue(value), sp);
-                self.dump_stack(builder);
-                self.pop_label();
-                return BasicValueEnum::IntValue(value);
+                BasicValueEnum::IntValue(value)
             }
-        }
+        };
+        self.build_dump_stack(builder);
+        self.pop_label();
+        ret
     }
 }
 

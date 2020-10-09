@@ -6,7 +6,7 @@ extern void contract();
 
 void dump_stack(char* label) {
     printf("%s\n", label);
-    int top = 10;
+    int top = 3;
     int size = top > 0 ? top * 32 : (1024 * 256 / 8);
     for (int i = 0; i < size; i += 32) {
         char* arrow = (sp * 32) == i ? " --->" : "     ";
