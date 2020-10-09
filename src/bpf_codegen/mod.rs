@@ -77,7 +77,7 @@ impl<'a, 'ctx> BpfCodeGen<'a, 'ctx> {
 
     pub fn label(&self, name: &str, builder: &'a Builder<'ctx>) {
         let function = self.fun.unwrap();
-        let basic_block = self.context.append_basic_block(function, &format!("{}_instr", name));
+        let basic_block = self.context.append_basic_block(function, name);
         builder.build_unconditional_branch(basic_block);
         builder.position_at_end(basic_block);
     }
@@ -88,7 +88,26 @@ impl<'a, 'ctx> BpfCodeGen<'a, 'ctx> {
         }
     }
 
-    pub fn gen_push(&self, builder: &'a Builder<'ctx>, value: BasicValueEnum<'ctx>) -> BasicValueEnum<'ctx> {
+    pub fn gen_pop(&self, builder: &'a Builder<'ctx>, label: &str) -> BasicValueEnum<'ctx> {
+        self.label(&format!("{}_pop", label), builder);
+        let sp_ptr = self.sp.unwrap().as_pointer_value();
+        let sp = builder.build_load(sp_ptr, "sp");
+        let stack = self.stack.unwrap().as_pointer_value();
+
+        let addr = unsafe { builder.build_gep(stack, &[sp.into_int_value()], "stack") };
+        let arr = builder.build_load(addr, "arr").into_array_value();
+        let tos = builder.build_extract_value(arr, 0, "tos").unwrap();
+
+        let sp = builder.build_int_sub(
+            sp.into_int_value(),
+            self.context.i64_type().const_int(1, false),
+            "spsub");
+        builder.build_store(sp_ptr, sp); 
+        tos
+    }
+
+    pub fn gen_push(&self, builder: &'a Builder<'ctx>, value: BasicValueEnum<'ctx>, label: &str) -> BasicValueEnum<'ctx> {
+        self.label(&format!("{}_push", label), builder);
         let sp_ptr = self.sp.unwrap().as_pointer_value();
         let sp = builder.build_load(sp_ptr, "sp");
         let sp = builder.build_int_add(
@@ -179,38 +198,25 @@ impl<'a, 'ctx> BpfCodeGen<'a, 'ctx> {
                 BasicValueEnum::IntValue(self.context.i8_type().const_zero())
             }
             Instruction::Add => {
-                self.label("add_before", builder);
-                let a = self.gen_instr(&Instruction::Pop, builder);
-                let b = self.gen_instr(&Instruction::Pop, builder);
                 self.label("add", builder);
+                let a = self.gen_pop(builder, "add");
+                let b = self.gen_pop(builder, "add");
+
+                self.label("add_actual", builder);
                 let ret = builder.build_int_add(a.into_int_value(), b.into_int_value(), "add");
                 let value = BasicValueEnum::IntValue(ret);
-                self.gen_push(builder, value);
+                self.gen_push(builder, value, "add");
                 value
             }
             Instruction::Pop => {
                 self.label("pop", builder);
-
-                let sp_ptr = self.sp.unwrap().as_pointer_value();
-                let sp = builder.build_load(sp_ptr, "sp");
-                let stack = self.stack.unwrap().as_pointer_value();
-
-                let addr = unsafe { builder.build_gep(stack, &[sp.into_int_value()], "stack") };
-                let arr = builder.build_load(addr, "arr").into_array_value();
-                let tos = builder.build_extract_value(arr, 0, "tos").unwrap();
-
-                let sp = builder.build_int_sub(
-                    sp.into_int_value(),
-                    self.context.i64_type().const_int(1, false),
-                    "spsub");
-                builder.build_store(sp_ptr, sp); 
-                return tos;
+                self.gen_pop(builder, "")
             }
             Instruction::Push(vals) => {
                 self.label("push", builder);
 
                 let value = self.i256_ty.const_int_arbitrary_precision(&nibble_to_u64(vals));
-                self.gen_push(builder, BasicValueEnum::IntValue(value));
+                self.gen_push(builder, BasicValueEnum::IntValue(value), "");
                 BasicValueEnum::IntValue(value)
             }
         }
