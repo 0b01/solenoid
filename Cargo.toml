@@ -10,3 +10,7 @@ edition = "2018"
 rsevmasm = "0.5.0"
 hex = "*"
 inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm10-0"] }
+
+[[bin]]
+name = "solenoid"
+path = "src/bin.rs"

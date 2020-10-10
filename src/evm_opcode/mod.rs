@@ -23,9 +23,11 @@ use instructions::{assemble_instruction, disassemble_next_byte};
 pub use error::DisassemblyError;
 pub use instructions::Instruction;
 
+type InstrTy = (usize, Instruction);
+
 #[derive(Clone, Debug)]
 pub struct Disassembly {
-    pub instructions: Vec<Instruction>,
+    pub instructions: Vec<InstrTy>,
 }
 
 impl Disassembly {
@@ -48,7 +50,7 @@ pub fn assemble_instructions(disassembly: Vec<Instruction>) -> Vec<u8> {
     result
 }
 
-fn disassemble_hex_str(input: &str) -> Result<Vec<Instruction>, DisassemblyError> {
+fn disassemble_hex_str(input: &str) -> Result<Vec<InstrTy>, DisassemblyError> {
     let input = if input[0..2] == *"0x" {
         &input[2..]
     } else {
@@ -58,7 +60,7 @@ fn disassemble_hex_str(input: &str) -> Result<Vec<Instruction>, DisassemblyError
     disassemble_bytes(&bytes)
 }
 
-fn disassemble_bytes(bytes: &[u8]) -> Result<Vec<Instruction>, DisassemblyError> {
+fn disassemble_bytes(bytes: &[u8]) -> Result<Vec<InstrTy>, DisassemblyError> {
     let mut instructions = Vec::new();
     let mut cursor = Cursor::new(bytes);
     loop {
@@ -66,7 +68,7 @@ fn disassemble_bytes(bytes: &[u8]) -> Result<Vec<Instruction>, DisassemblyError>
         match result {
             Err(DisassemblyError::IOError(..)) => break,
             Ok((offset, instruction)) => {
-                instructions.push(instruction);
+                instructions.push((offset, instruction));
             }
             Err(err) => {
                 if let DisassemblyError::TooFewBytesForPush = err {
@@ -82,12 +84,6 @@ fn disassemble_bytes(bytes: &[u8]) -> Result<Vec<Instruction>, DisassemblyError>
     Ok(instructions)
 }
 
-pub fn parse(bytes: &[u8]) {
-    for opcode in Disassembly::from_bytes(bytes).unwrap().instructions {
-        println!("{:?}", opcode);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,7 +93,8 @@ mod tests {
     fn test_parse() {
         let code = "608060405234801561001057600080fd5b506040516101403803806101408339818101604052602081101561003357600080fd5b8101908080519060200190929190505050806000806101000a81548160ff0219169083151502179055505060d48061006c6000396000f3fe6080604052348015600f57600080fd5b506004361060325760003560e01c80636d4ce63c146037578063cde4efa9146057575b600080fd5b603d605f565b604051808215151515815260200191505060405180910390f35b605d6075565b005b60008060009054906101000a900460ff16905090565b6000809054906101000a900460ff16156000806101000a81548160ff02191690831515021790555056fea265627a7a7231582082bcd0833ba0da688a9423e31c3ac40adacca43eb13e585f36ef1dd07e14c45864736f6c63430005110032";
         let bytes: Vec<u8> = Vec::from_hex(code).expect("Invalid Hex String");
-
-        parse(&bytes);
+        for opcode in Disassembly::from_bytes(&bytes).unwrap().instructions {
+            println!("{:?}", opcode);
+        }
     }
 }
