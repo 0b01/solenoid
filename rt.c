@@ -20,10 +20,10 @@ void dump_stack(char* label) {
     }
     printf("\n");
 
-    printf("mem:\n");
+    printf(" mem:\n");
     size = top > 0 ? top * 32 : (1024 * 256 / 8);
     for (int i = 0; i < size; i += 32) {
-        printf("%04x ", i);
+        printf(" %04x ", i);
         for (int j = i + 31; j >= i; j--) {
             unsigned char k = mem[j];
             printf("%02X", k);
