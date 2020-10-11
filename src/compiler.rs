@@ -38,6 +38,7 @@ pub struct Compiler<'a, 'ctx> {
     sp: Option<GlobalValue<'ctx>>,
     stack: Option<GlobalValue<'ctx>>,
     mem: Option<GlobalValue<'ctx>>,
+    code: Option<GlobalValue<'ctx>>,
     fun: Option<FunctionValue<'ctx>>,
     dump_stack: Option<FunctionValue<'ctx>>,
     jumpbb: Option<BasicBlock<'ctx>>,
@@ -59,6 +60,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         builder: &'a Builder<'ctx>,
         module: &'a Module<'ctx>,
         instrs: &[(usize, Instruction)],
+        payload: &[u8],
     ) -> Self {
         let mut compiler = Self {
             context,
@@ -67,6 +69,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             sp: None,
             stack: None,
             mem: None,
+            code: None,
             fun: None,
             dump_stack: None,
             jumpdests: BTreeMap::new(),
@@ -75,7 +78,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             label_stack: Rc::new(RefCell::new(Vec::new())),
         };
 
-        compiler.build_globals(builder);
+        compiler.build_globals(builder, payload);
 
         // entry
         let entrybb = compiler.context.append_basic_block(compiler.fun.unwrap(), "entry");
@@ -118,13 +121,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn build_jumpbb(&self, builder: &'a Builder<'ctx>) {
         builder.position_at_end(self.jumpbb.unwrap());
         let sp = self.build_sp(builder);
-        let dest = self.build_peek(builder, sp, 1).into_int_value();
-        self.build_dump_stack(builder);
+        let dest = self.build_peek(builder, sp, 1);
         let sp = self.build_decr(builder, sp, 2);
-        self.build_dump_stack(builder);
         let cases = self.jumpdests.iter()
             .map(|(offset, bb)|
-                (self.i256_ty.const_int(*offset as u64 - 1, false), *bb)).collect::<Vec<_>>();
+                (self.i256_ty.const_int(*offset as u64, false), *bb)).collect::<Vec<_>>();
         builder.build_switch(dest, self.errbb.unwrap(), &cases);
     }
 
@@ -134,7 +135,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Build stack related global variables
-    fn build_globals(&mut self, builder: &'a Builder<'ctx>) {
+    fn build_globals(&mut self, builder: &'a Builder<'ctx>, payload: &[u8]) {
         let i64_ty = self.context.i64_type();
         let i256_arr_ty = self.i256_ty.array_type(1024); // .zero (256 / 8 * size)
 
@@ -157,9 +158,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let mem = self.module.add_global(i8_array_ty, Some(AddressSpace::Generic), "mem");
         mem.set_initializer(&i8_array_ty.const_zero());
 
+        // code
+        let code = self.module.add_global(
+            self.context.i8_type().array_type(payload.len() as u32),
+            Some(AddressSpace::Generic),
+            "code");
+        let payload = self.context.const_string(payload, false);
+        code.set_initializer(&payload);
+
+
         self.stack = Some(stack);
         self.sp = Some(sp);
         self.mem = Some(mem);
+        self.code = Some(code);
 
         let fn_type = self.context.void_type().fn_type(&[], false);
         let function = self.module.add_function("contract", fn_type, None);
@@ -233,7 +244,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Peek a value off stack with offset
-    fn build_peek(&self, builder: &'a Builder<'ctx>, sp: IntValue<'ctx>, n: u64) -> BasicValueEnum<'ctx> {
+    fn build_peek(&self, builder: &'a Builder<'ctx>, sp: IntValue<'ctx>, n: u64) -> IntValue<'ctx> {
         self.push_label("peek", builder);
         let sp = builder.build_int_sub(
             sp,
@@ -242,7 +253,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         let stack = self.stack.unwrap().as_pointer_value();
         let addr = unsafe { builder.build_in_bounds_gep(stack, &[self.context.i64_type().const_zero(), sp], "stack") };
-        let ret = builder.build_load(addr, "arr");
+        let ret = builder.build_load(addr, "arr").into_int_value();
 
         self.pop_label();
         ret
@@ -258,7 +269,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let ret = self.build_peek(builder, sp, 0);
         builder.build_store(self.sp.unwrap().as_pointer_value(), sp); 
         self.pop_label();
-        (ret.into_int_value(), sp)
+        (ret, sp)
     }
 
     /// Push a value onto stack
@@ -274,9 +285,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Build instruction
-    fn build_instr(&self, offset: usize, instr: &Instruction, builder: &'a Builder<'ctx>) -> BasicValueEnum<'ctx> {
+    fn build_instr(&self, offset: usize, instr: &Instruction, builder: &'a Builder<'ctx>) {
         dbg!((offset, instr));
-        let ret = match instr {
+        match instr {
             Instruction::Stop |
             Instruction::SDiv |
             Instruction::Mod |
@@ -331,38 +342,66 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::Create |
             Instruction::Call |
             Instruction::CallCode |
-            Instruction::Return |
             Instruction::DelegateCall |
             Instruction::Create2 |
             Instruction::StaticCall |
             Instruction::Invalid |
-            Instruction::CodeCopy |
             Instruction::SelfDestruct => {
-                self.i256_ty.const_zero().into()
+                unimplemented!("{:#?}", instr);
+            }
+            Instruction::Return => {
+                let name = "return";
+                self.push_label(name, builder);
+                let sp = self.build_sp(builder);
+                let length = self.build_peek(builder, sp, 2);
+                let offset = self.build_peek(builder, sp, 1);
+                let sp = self.build_decr(builder, sp, 2);
+            }
+            Instruction::CodeCopy => {
+                let name = "codecopy";
+                self.push_label(name, builder);
+                let sp = self.build_sp(builder);
+                let length = self.build_peek(builder, sp, 3);
+                let offset = self.build_peek(builder, sp, 2);
+                let dest_offset = self.build_peek(builder, sp, 1);
+                let sp = self.build_decr(builder, sp, 3);
+
+                let src = unsafe {
+                    builder.build_in_bounds_gep(
+                        self.code.unwrap().as_pointer_value(), 
+                        &[self.context.i8_type().const_int(0, false), offset], 
+                        "src") };
+                let dest = unsafe { 
+                    builder.build_in_bounds_gep(
+                        self.mem.unwrap().as_pointer_value(), 
+                        &[self.context.i8_type().const_int(0, false), dest_offset], 
+                        "dest") };
+
+                // memory[destOffset:destOffset+length] = code[offset:offset+length];
+                // let length = builder.build_int_cast(length, self.context.i64_type(), "length");
+                builder.build_memcpy(dest, 1, src, 1, length);
             }
             Instruction::JumpDest => {
                 let bb = self.jumpdests.get(&offset).unwrap();
                 builder.build_unconditional_branch(*bb);
                 builder.position_at_end(*bb);
-                self.i256_ty.const_int(offset as u64, false).into()
+                self.push_label("jumpdest", builder);
             }
             Instruction::Revert => {
                 let name = "revert";
                 self.push_label(name, builder);
                 builder.build_unconditional_branch(self.errbb.unwrap());
-                self.i256_ty.const_zero().into()
             }
             Instruction::JumpIf => {
                 let name = "jumpi";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let cond = self.build_peek(builder, sp, 2).into_int_value();
+                let cond = self.build_peek(builder, sp, 2);
                 let cond = builder.build_int_compare(IntPredicate::EQ, cond, self.i256_ty.const_int(1, false), "cond");
 
                 let else_block = self.context.insert_basic_block_after(builder.get_insert_block().unwrap(), "else");
                 builder.build_conditional_branch(cond, self.jumpbb.unwrap(), else_block);
                 builder.position_at_end(else_block);
-                cond.into()
             }
             Instruction::IsZero => {
                 let name = "iszero";
@@ -379,15 +418,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     self.i256_ty, 
                     name).into();
                 self.build_push(builder, cmp, sp);
-                cmp.into()
             }
             Instruction::Dup(n) => {
                 let name = "dup";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let value = self.build_peek(builder, sp, *n as u64).into();
+                let value = self.build_peek(builder, sp, *n as u64 + 1).into();
                 self.build_push(builder, value, sp);
-                value
             }
             Instruction::CallValue => {
                 // TODO:
@@ -396,8 +433,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let sp = self.build_sp(builder);
                 let value = self.i256_ty.const_int(0, false).into();
                 self.build_push(builder, value, sp);
-
-                value
             }
             Instruction::MLoad => {
                 let name = "mstore";
@@ -409,14 +444,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let mem = self.mem.unwrap().as_pointer_value();
                 let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.context.i64_type().const_zero(), offset], "stack") };
                 let value = builder.build_load(addr, "value");
-                value
             }
             Instruction::MStore => {
                 let name = "mstore";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let offset = self.build_peek(builder, sp, 1).into_int_value();
-                let value = self.build_peek(builder, sp, 2).into_int_value();
+                let offset = self.build_peek(builder, sp, 1);
+                let value = self.build_peek(builder, sp, 2);
                 let sp = self.build_decr(builder, sp, 2);
                 let offset = builder.build_int_truncate_or_bit_cast(offset, self.context.i64_type(), "idx");
 
@@ -424,79 +458,70 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.context.i64_type().const_zero(), offset], "stack") };
                 let addr = builder.build_pointer_cast(addr, self.i256_ty.ptr_type(AddressSpace::Generic), "addr");
                 builder.build_store(addr, value);
-
-                value.into()
             }
             Instruction::Sub => {
                 let name = "sub";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let a = self.build_peek(builder, sp, 1).into_int_value();
-                let b = self.build_peek(builder, sp, 2).into_int_value();
+                let a = self.build_peek(builder, sp, 1);
+                let b = self.build_peek(builder, sp, 2);
                 let sp = self.build_decr(builder, sp, 2);
                 let value = builder.build_int_sub(a, b, name).into();
                 self.build_push(builder, value, sp);
-                value
             }
             Instruction::Div => {
                 let name = "div";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let a = self.build_peek(builder, sp, 1).into_int_value();
-                let b = self.build_peek(builder, sp, 2).into_int_value();
+                let a = self.build_peek(builder, sp, 1);
+                let b = self.build_peek(builder, sp, 2);
                 let sp = self.build_decr(builder, sp, 2);
                 let value = builder.build_int_unsigned_div(a, b, name).into();
                 self.build_push(builder, value, sp);
-                value
             }
             Instruction::Mul => {
                 let name = "mul";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let a = self.build_peek(builder, sp, 1).into_int_value();
-                let b = self.build_peek(builder, sp, 2).into_int_value();
+                let a = self.build_peek(builder, sp, 1);
+                let b = self.build_peek(builder, sp, 2);
                 let sp = self.build_decr(builder, sp, 2);
                 let value = builder.build_int_mul(a, b, name).into(); // TODO: verify
                 self.build_push(builder, value, sp);
-                value
             }
             Instruction::Add => {
                 let name = "add";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let a = self.build_peek(builder, sp, 1).into_int_value();
-                let b = self.build_peek(builder, sp, 2).into_int_value();
+                let a = self.build_peek(builder, sp, 1);
+                let b = self.build_peek(builder, sp, 2);
                 let sp = self.build_decr(builder, sp, 2);
                 let value = builder.build_int_add(a, b, name).into();
                 self.build_push(builder, value, sp);
-                value
             }
             Instruction::Pop => {
                 let name = "pop";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
                 let (ret, sp) = self.build_pop(builder, sp);
-                ret.into()
             }
             Instruction::Push(vals) => {
                 self.push_label("push", builder);
                 let sp = self.build_sp(builder);
                 let value = self.i256_ty.const_int_arbitrary_precision(&nibble_to_u64(vals)).into();
                 self.build_push(builder, value, sp);
-                value
             }
         };
         self.build_dump_stack(builder);
         self.pop_label();
-        ret
     }
 
-    pub fn codegen(instrs: &[(usize, Instruction)]) {
+    pub fn codegen(instrs: &[(usize, Instruction)], payload: &[u8]) {
         let context = Context::create();
         let module = context.create_module("contract");
         let builder = context.create_builder();
 
-        let compiler = Compiler::compile(&context, &builder, &module, &instrs);
+        let compiler = Compiler::compile(&context, &builder, &module, &instrs, payload);
         // compiler.dbg();
         compiler.write_ir("out.ll");
     }
@@ -520,13 +545,13 @@ mod tests {
             Instruction::CallValue,
             Instruction::Dup(1),
             Instruction::IsZero,
-            Instruction::Push(vec![0x00, 0x0f]),
+            Instruction::Push(vec![0x00, 0x10]),
             Instruction::JumpIf,
             Instruction::Push(vec![0]),
             Instruction::Dup(1),
             Instruction::Revert,
             Instruction::JumpDest,
-            Instruction::Push(vec![0xAA, 0xAA]),
+            Instruction::Pop,
         ];
         let bytes = crate::evm_opcode::assemble_instructions(instrs);
         let instrs = crate::evm_opcode::Disassembly::from_bytes(&bytes).unwrap().instructions;
