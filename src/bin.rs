@@ -1,14 +1,68 @@
 use libsolenoid::evm_opcode::{Disassembly, assemble_instructions};
 use libsolenoid::compiler::Compiler;
+use std::process::Command;
 use hex::FromHex;
+use structopt::StructOpt;
+use std::path::PathBuf;
+use serde_json;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use log::{info, warn};
+
+#[derive(Debug, StructOpt)]
+#[structopt(name = "solenoid", about = "solenoid compiler toolchain")]
+struct Opt {
+    /// debug
+    #[structopt(short, long)]
+    debug: bool,
+
+    /// Input contract
+    #[structopt(parse(from_os_str))]
+    input: PathBuf,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Contract {
+    abi: String,
+    bin: String,
+    #[serde(rename="bin-runtime")]
+    bin_runtime: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Contracts {
+    contracts: HashMap<String, Contract>,
+}
+
 
 fn main() {
-    let code = "608060405234801561001057600080fd5b5060c78061001f6000396000f3fe6080604052348015600f57600080fd5b506004361060325760003560e01c806360fe47b11460375780636d4ce63c146062575b600080fd5b606060048036036020811015604b57600080fd5b8101908080359060200190929190505050607e565b005b60686088565b6040518082815260200191505060405180910390f35b8060008190555050565b6000805490509056fea2646970667358221220a9fae844c36e17167b8eb3c2a937fae45ccababd9dedf0238ef8597e021ba56964736f6c63430006060033";
-    let bytes: Vec<u8> = Vec::from_hex(code).expect("Invalid Hex String");
-    let opcodes =  Disassembly::from_bytes(&bytes).unwrap().instructions;
+    env_logger::init();
 
-    let instrs: Vec<_> = opcodes.iter().map(|(_,i)|i.clone()).collect();
-    let bytes = &assemble_instructions(instrs)[..100];
-    let opcodes =  Disassembly::from_bytes(&bytes).unwrap().instructions;
-    Compiler::codegen(&opcodes, &bytes);
+
+    let opt = Opt::from_args();
+
+    let cmd = Command::new("solc")
+            .arg(opt.input)
+            .arg("--combined-json")
+            .arg("bin,bin-runtime,abi")
+            .output()
+            .expect("solc command failed to start");
+    let json = String::from_utf8_lossy(&cmd.stdout);
+
+    let contracts: Contracts = serde_json::from_str(&json).unwrap();
+
+    for (name, contract) in &contracts.contracts {
+        info!("Compiling {} constructor", name);
+        let code = &contract.bin;
+        let bytes: Vec<u8> = Vec::from_hex(code).expect("Invalid Hex String");
+        let opcodes =  Disassembly::from_bytes(&bytes).unwrap().instructions;
+        Compiler::codegen(&opcodes, &bytes);
+
+        info!("Compiling {} runtime", name);
+        let code = &contract.bin_runtime;
+        let bytes: Vec<u8> = Vec::from_hex(code).expect("Invalid Hex String");
+        let opcodes =  Disassembly::from_bytes(&bytes).unwrap().instructions;
+        Compiler::codegen(&opcodes, &bytes);
+    }
+
 }

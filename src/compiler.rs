@@ -8,12 +8,12 @@ use inkwell::AddressSpace;
 use inkwell::values::{FunctionValue, GlobalValue, BasicValueEnum, IntValue};
 use inkwell::types::{IntType};
 use inkwell::IntPredicate;
-
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-
 use inkwell::module::Module;
+
+use log::{info, warn, error};
 
 const DEBUG: bool = true;
 
@@ -349,10 +349,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::Create2 |
             Instruction::StaticCall |
             Instruction::SelfDestruct => {
-                unimplemented!("{:#?}", instr);
+                error!("{:#?}", instr);
             }
             Instruction::Invalid => {
-                println!("Invalid instruction encountered. Halting compilation");
+                warn!("Invalid instruction encountered. Halting compilation");
                 return None;
             }
             Instruction::Return => {
