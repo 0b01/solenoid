@@ -4,8 +4,9 @@ pragma solidity >=0.4.16 <0.8.0;
 contract SimpleStorage {
     uint storedData;
 
-    mapping (address => uint) public balances;
-
+    constructor() public {
+        storedData = 1;
+    }
 
     function set(uint x) public {
         storedData = x;

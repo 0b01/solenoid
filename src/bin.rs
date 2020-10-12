@@ -1,4 +1,5 @@
-use libsolenoid::evm_opcode::{Disassembly, assemble_instructions};
+use inkwell::context::Context;
+use libsolenoid::evm_opcode::{Disassembly, Instruction, assemble_instructions};
 use libsolenoid::compiler::Compiler;
 use std::process::Command;
 use hex::FromHex;
@@ -29,6 +30,19 @@ struct Contract {
     bin_runtime: String,
 }
 
+impl Contract {
+    pub fn parse(&self, runtime: bool) -> (Vec<(usize, Instruction)>, Vec<u8>) {
+        let code = if runtime {
+            &self.bin_runtime
+        } else {
+            &self.bin
+        };
+        let bytes: Vec<u8> = Vec::from_hex(code).expect("Invalid Hex String");
+        let opcodes =  Disassembly::from_bytes(&bytes).unwrap().instructions;
+        (opcodes, bytes)
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 struct Contracts {
     contracts: HashMap<String, Contract>,
@@ -51,18 +65,21 @@ fn main() {
 
     let contracts: Contracts = serde_json::from_str(&json).unwrap();
 
+
+    let context = Context::create();
+    let module = context.create_module("contracts");
     for (name, contract) in &contracts.contracts {
+        let name = name.split(":").last().unwrap();
+
+        let builder = context.create_builder();
+
         info!("Compiling {} constructor", name);
-        let code = &contract.bin;
-        let bytes: Vec<u8> = Vec::from_hex(code).expect("Invalid Hex String");
-        let opcodes =  Disassembly::from_bytes(&bytes).unwrap().instructions;
-        Compiler::codegen(&opcodes, &bytes);
+        let (instrs, payload) = contract.parse(false);
+        Compiler::codegen(&context, &builder, &module, &instrs, &payload, name, false);
 
         info!("Compiling {} runtime", name);
-        let code = &contract.bin_runtime;
-        let bytes: Vec<u8> = Vec::from_hex(code).expect("Invalid Hex String");
-        let opcodes =  Disassembly::from_bytes(&bytes).unwrap().instructions;
-        Compiler::codegen(&opcodes, &bytes);
+        let (instrs, payload) = contract.parse(true);
+        Compiler::codegen(&context, &builder, &module, &instrs, &payload, name, true);
     }
-
+    module.print_to_file("out.ll").unwrap();
 }

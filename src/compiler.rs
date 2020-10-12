@@ -49,11 +49,6 @@ pub struct Compiler<'a, 'ctx> {
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
-    /// write module to ir file
-    pub fn write_ir(&self, filename: &str) {
-        self.module.print_to_file(filename).unwrap();
-    }
-
     /// Compile instructions
     pub fn compile(
         context: &'ctx Context,
@@ -61,6 +56,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         module: &'a Module<'ctx>,
         instrs: &[(usize, Instruction)],
         payload: &[u8],
+        name: &str,
+        is_runtime: bool,
     ) -> Self {
         let mut compiler = Self {
             context,
@@ -78,7 +75,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             label_stack: Rc::new(RefCell::new(Vec::new())),
         };
 
-        compiler.build_globals(builder, payload);
+        compiler.build_globals(builder, payload, name, is_runtime);
 
         // entry
         let entrybb = compiler.context.append_basic_block(compiler.fun.unwrap(), "entry");
@@ -138,7 +135,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Build stack related global variables
-    fn build_globals(&mut self, _builder: &'a Builder<'ctx>, payload: &[u8]) {
+    fn build_globals(&mut self, _builder: &'a Builder<'ctx>, payload: &[u8], name: &str, is_runtime: bool) {
         let i64_ty = self.context.i64_type();
         let i256_arr_ty = self.i256_ty.array_type(1024); // .zero (256 / 8 * size)
 
@@ -165,7 +162,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let code = self.module.add_global(
             self.context.i8_type().array_type(payload.len() as u32),
             Some(AddressSpace::Generic),
-            "code");
+            if is_runtime { "code_runtime" } else{ "code" });
         let payload = self.context.const_string(payload, false);
         code.set_initializer(&payload);
 
@@ -175,8 +172,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.mem = Some(mem);
         self.code = Some(code);
 
-        let fn_type = self.context.void_type().fn_type(&[], false);
-        let function = self.module.add_function("contract", fn_type, None);
+        let msg_len = self.context.i64_type().into();
+        let msg = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
+        let fn_type = self.context.void_type()
+            .fn_type(
+                &[msg, msg_len],
+                false
+            );
+        let fn_name = format!("{}_{}", name, if is_runtime {"runtime"} else {"constructor"});
+        let function = self.module.add_function(&fn_name, fn_type, None);
 
         self.fun = Some(function);
     }
@@ -340,7 +344,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::MSize |
             Instruction::Gas |
             Instruction::GasLimit |
-            Instruction::Swap(_) |
             Instruction::Log(_) |
             Instruction::Create |
             Instruction::Call |
@@ -431,6 +434,29 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let sp = self.build_sp(builder);
                 let value = self.build_peek(builder, sp, *n as u64 + 1).into();
                 self.build_push(builder, value, sp);
+            }
+            Instruction::Swap(n) => {
+                self.push_label("swap", builder);
+                let sp = self.build_sp(builder);
+                let sp_l = builder.build_int_sub(
+                    sp,
+                    self.context.i64_type().const_int(1, false),
+                    "sp");
+
+                let sp_r = builder.build_int_sub(
+                    sp,
+                    self.context.i64_type().const_int(*n as u64 +1, false),
+                    "sp");
+
+                let stack = self.stack.unwrap().as_pointer_value();
+                let addr_l = unsafe { builder.build_in_bounds_gep(stack, &[self.context.i64_type().const_zero(), sp_l], "stack") };
+                let addr_r = unsafe { builder.build_in_bounds_gep(stack, &[self.context.i64_type().const_zero(), sp_r], "stack") };
+                let value_l = builder.build_load(addr_l, "arr").into_int_value();
+                let value_r = builder.build_load(addr_r, "arr").into_int_value();
+                builder.build_store(addr_l, value_r);
+                builder.build_store(addr_r, value_l);
+
+                self.pop_label();
             }
             Instruction::CallValue => {
                 // TODO:
@@ -523,14 +549,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         Some(())
     }
 
-    pub fn codegen(instrs: &[(usize, Instruction)], payload: &[u8]) {
-        let context = Context::create();
-        let module = context.create_module("contract");
-        let builder = context.create_builder();
-
-        let compiler = Compiler::compile(&context, &builder, &module, &instrs, payload);
-        // compiler.dbg();
-        compiler.write_ir("out.ll");
+    pub fn codegen(
+        context: &'ctx Context,
+        builder: &'a Builder<'ctx>,
+        module: &'a Module<'ctx>,
+        instrs: &[(usize, Instruction)],
+        payload: &[u8],
+        name: &str,
+        is_runtime: bool,
+    ) {
+        Compiler::compile(&context, &builder, &module, &instrs, payload, name, is_runtime);
     }
 }
 
@@ -565,6 +593,6 @@ mod tests {
 
         let compiler = Compiler::compile(&context, &builder, &module, &instrs, &bytes);
         // compiler.dbg();
-        compiler.write_ir("out.ll");
+        module.print_to_file("out.ll").unwrap();
     }
 }
