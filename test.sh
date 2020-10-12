@@ -1,4 +1,4 @@
-#! /usr/bin/bash
+#! /bin/bash
 
 cargo run
 llc out.ll -march=bpf -o out.bpf.s -O3

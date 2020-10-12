@@ -92,6 +92,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         compiler.jumpbb = Some(compiler.context.append_basic_block(compiler.fun.unwrap(), "jumpbb"));
         let mainbb = compiler.context.append_basic_block(compiler.fun.unwrap(), "main");
         for (offset, _dest) in instrs.iter()
+            .take_while(|(_, i)| *i != Instruction::Invalid)
             .filter(|(_,i)|*i==Instruction::JumpDest)
         {
             let jumpdestbb = compiler.context.append_basic_block(compiler.fun.unwrap(), "jumpdest");
@@ -112,7 +113,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         builder.position_at_end(mainbb);
 
         for (offset, instr) in instrs {
-            compiler.build_instr(*offset, instr, builder);
+            if Option::None == compiler.build_instr(*offset, instr, builder) {
+                break;
+            }
         }
         compiler.build_ret(builder);
         compiler
@@ -285,8 +288,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Build instruction
-    fn build_instr(&self, offset: usize, instr: &Instruction, builder: &'a Builder<'ctx>) {
-        dbg!((offset, instr));
+    fn build_instr(&self, offset: usize, instr: &Instruction, builder: &'a Builder<'ctx>) -> Option<()> {
+        // dbg!((offset, instr));
         match instr {
             Instruction::Stop |
             Instruction::SDiv |
@@ -345,9 +348,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::DelegateCall |
             Instruction::Create2 |
             Instruction::StaticCall |
-            Instruction::Invalid |
             Instruction::SelfDestruct => {
                 unimplemented!("{:#?}", instr);
+            }
+            Instruction::Invalid => {
+                println!("Invalid instruction encountered. Halting compilation");
+                return None;
             }
             Instruction::Return => {
                 let name = "return";
@@ -514,6 +520,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         };
         self.build_dump_stack(builder);
         self.pop_label();
+        Some(())
     }
 
     pub fn codegen(instrs: &[(usize, Instruction)], payload: &[u8]) {
@@ -556,7 +563,7 @@ mod tests {
         let bytes = crate::evm_opcode::assemble_instructions(instrs);
         let instrs = crate::evm_opcode::Disassembly::from_bytes(&bytes).unwrap().instructions;
 
-        let compiler = Compiler::compile(&context, &builder, &module, &instrs);
+        let compiler = Compiler::compile(&context, &builder, &module, &instrs, &bytes);
         // compiler.dbg();
         compiler.write_ir("out.ll");
     }
