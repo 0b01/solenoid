@@ -54,7 +54,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     /// Compile instructions
     pub fn new(
         context: &'ctx Context,
-        builder: &'a Builder<'ctx>,
         module: &'a Module<'ctx>,
     ) -> Self {
         let compiler = Self {
@@ -82,10 +81,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         is_runtime: bool,
     ) {
         if !is_runtime {
-            self.build_globals(builder, payload, name, is_runtime);
+            self.build_globals(builder, name, is_runtime);
         }
 
-        self.build_function(builder, name, is_runtime);
+        self.build_function(builder, is_runtime);
 
         // entry
         let entrybb = self.context.append_basic_block(self.fun.unwrap(), "entry");
@@ -140,7 +139,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         builder.build_switch(dest, self.errbb.unwrap(), &cases);
     }
 
-    fn upow(&self, builder: &'a Builder<'ctx>) -> FunctionValue<'ctx> {
+    fn upow(&self) -> FunctionValue<'ctx> {
         let name = "upow";
         if let Some(f) = self.module.get_function(&name) {
             return f;
@@ -153,7 +152,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         upow
     }
 
-    fn sha3(&self, builder: &'a Builder<'ctx>) -> FunctionValue<'ctx> {
+    fn sha3(&self) -> FunctionValue<'ctx> {
         let name = "sha3";
         if let Some(f) = self.module.get_function(&name) {
             return f;
@@ -166,7 +165,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         sha3
     }
 
-    fn dump_stack(&self, builder: &'a Builder<'ctx>) -> FunctionValue<'ctx> {
+    fn dump_stack(&self) -> FunctionValue<'ctx> {
         let name = "dump_stack";
         if let Some(f) = self.module.get_function(&name) {
             return f;
@@ -183,7 +182,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Build stack related global variables
-    fn build_globals(&mut self, builder: &'a Builder<'ctx>, payload: &[u8], name: &str, is_runtime: bool) {
+    fn build_globals(&mut self, payload: &[u8], _name: &str, is_runtime: bool) {
         let i64_ty = self.context.i64_type();
         let i256_arr_ty = self.i256_ty.array_type(1024); // .zero (256 / 8 * size)
 
@@ -214,7 +213,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.code = Some(code);
     }
 
-    pub fn build_function(&mut self, builder: &'a Builder<'ctx>, name: &str, is_runtime: bool) {
+    pub fn build_function(&mut self, _name: &str, is_runtime: bool) {
         let msg_len = self.context.i64_type().into();
         let ret_offset = self.context.i64_type().ptr_type(AddressSpace::Generic).into();
         let ret_len = self.context.i64_type().ptr_type(AddressSpace::Generic).into();
@@ -261,7 +260,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     .as_pointer_value()
                     .const_cast(
                         self.context.i8_type().ptr_type(AddressSpace::Generic)) };
-            builder.build_call(self.dump_stack(builder), &[s.into()], "dump");
+            builder.build_call(self.dump_stack(), &[s.into()], "dump");
         }
     }
 
@@ -391,8 +390,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let tos = unsafe { builder.build_in_bounds_gep(stack, &[self.context.i64_type().const_zero(), sp], "stack") };
                 let tos = builder.build_pointer_cast(tos, self.context.i8_type().ptr_type(AddressSpace::Generic), "tos");
 
-                let func = builder.build_call(
-                    self.sha3(builder), 
+                let _func = builder.build_call(
+                    self.sha3(), 
                     &[
                         addr.into(), 
                         length.into(), 
@@ -678,8 +677,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let base = self.build_peek(builder, sp, 1, "base");
                 let exp = self.build_peek(builder, sp, 2, "exp");
                 let sp = self.build_decr(builder, sp, 2);
-                let upow = self.upow(builder);
-
+                
                 let ret_ptr = builder.build_alloca(self.i256_ty, "ret");
 
                 let base_ptr = builder.build_alloca(self.i256_ty, "base");
@@ -688,7 +686,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let exp_ptr = builder.build_alloca(self.i256_ty, "exp");
                 builder.build_store(exp_ptr, exp);
 
-                builder.build_call(upow, &[ret_ptr.into(), base_ptr.into(), exp_ptr.into()], "upow");
+                builder.build_call(self.upow(), &[ret_ptr.into(), base_ptr.into(), exp_ptr.into()], "upow");
                 let value = builder.build_load(ret_ptr, "ret");
                 self.build_push(builder, value, sp);
             }
@@ -888,7 +886,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hex::FromHex;
+    
 
     #[test]
     fn codegen() {
@@ -926,7 +924,7 @@ mod tests {
         let bytes = crate::evm_opcode::assemble_instructions(instrs);
         let instrs = crate::evm_opcode::Disassembly::from_bytes(&bytes).unwrap().instructions;
 
-        let mut compiler = Compiler::new(&context, &builder, &module);
+        let mut compiler = Compiler::new(&context, &module);
         compiler.compile(&builder, &instrs, &bytes, "test", false);
         // compiler.dbg();
         module.print_to_file("out.ll").unwrap();

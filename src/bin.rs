@@ -1,5 +1,5 @@
 use inkwell::context::Context;
-use libsolenoid::evm_opcode::{Disassembly, Instruction, assemble_instructions};
+use libsolenoid::evm_opcode::{Disassembly, Instruction};
 use libsolenoid::compiler::Compiler;
 use std::process::Command;
 use hex::FromHex;
@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use serde_json;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use log::{info, warn, debug};
+use log::info;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "solenoid", about = "solenoid compiler toolchain")]
@@ -69,7 +69,7 @@ fn main() {
     for (name, contract) in &contracts.contracts {
         let name = name.split(":").last().unwrap();
         let builder = context.create_builder();
-        let mut compiler = Compiler::new(&context, &builder, &module);
+        let mut compiler = Compiler::new(&context, &module);
 
         info!("Compiling {} constructor", name);
         let (instrs, payload) = contract.parse(false);
