@@ -153,13 +153,19 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     fn sha3(&self) -> FunctionValue<'ctx> {
-        let name = "sha3";
+        let name = "keccak256";
         if let Some(f) = self.module.get_function(&name) {
             return f;
         }
 
         let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic);
-        let fn_ty = char_ptr_ty.fn_type(&[char_ptr_ty.into(), self.context.i64_type().into(), char_ptr_ty.into(), self.context.i32_type().into()],false);
+        let fn_ty = self.context.void_type().fn_type(
+            &[
+                    char_ptr_ty.into(), 
+                    self.context.i16_type().into(), 
+                    char_ptr_ty.into(), 
+                ],
+                false);
         let sha3 = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
 
         sha3
@@ -347,6 +353,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::CallDataCopy |
             Instruction::CodeSize |
             Instruction::GasPrice |
+            Instruction::ChainId |
             Instruction::ExtCodeSize |
             Instruction::ExtCodeCopy |
             Instruction::ReturnDataSize |
@@ -380,7 +387,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let offset = self.build_peek(builder, sp, 1, "offset");
                 let sp = self.build_decr(builder, sp, 2);
 
-                let length = builder.build_int_cast(length, self.context.i64_type(), "length");
+                let length = builder.build_int_cast(length, self.context.i16_type(), "length");
                 
                 let mem = self.mem.unwrap().as_pointer_value();
                 let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.context.i64_type().const_zero(), offset], "stack") };
@@ -396,7 +403,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         addr.into(), 
                         length.into(), 
                         tos.into(), 
-                        self.context.i32_type().const_int(32, false).into(),
                     ], 
                     "hash");
                 self.build_incr(builder, sp, 1);

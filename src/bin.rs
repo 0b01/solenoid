@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use serde_json;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use log::info;
+use log::{info, debug};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "solenoid", about = "solenoid compiler toolchain")]
@@ -71,15 +71,17 @@ fn main() {
         let builder = context.create_builder();
         let mut compiler = Compiler::new(&context, &module);
 
-        info!("Compiling {} constructor", name);
         let (instrs, payload) = contract.parse(false);
-        // debug!("Constructor instrs: {:#?}", instrs);
+        let (runtime_instrs, runtime_payload) = contract.parse(true);
+
+        debug!("Constructor instrs: {:#?}", instrs);
+        debug!("Runtime instrs: {:#?}", instrs);
+
+        info!("Compiling {} constructor", name);
         compiler.compile(&builder, &instrs, &payload, name, false);
 
         info!("Compiling {} runtime", name);
-        let (instrs, payload) = contract.parse(true);
-        // debug!("Runtime instrs: {:#?}", instrs);
-        compiler.compile(&builder, &instrs, &payload, name, true);
+        compiler.compile(&builder, &runtime_instrs, &runtime_payload, name, true);
     }
     module.print_to_file("out.ll").unwrap();
 }

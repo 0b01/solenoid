@@ -74,6 +74,7 @@ pub fn assemble_instruction(instruction: Instruction) -> Vec<u8> {
         Instruction::Number => vec![0x43],
         Instruction::Difficulty => vec![0x44],
         Instruction::GasLimit => vec![0x45],
+        Instruction::ChainId => vec![0x46],
         Instruction::Pop => vec![0x50],
         Instruction::MLoad => vec![0x51],
         Instruction::MStore => vec![0x52],
@@ -162,6 +163,7 @@ pub fn disassemble_next_byte(
         0x43 => Instruction::Number,
         0x44 => Instruction::Difficulty,
         0x45 => Instruction::GasLimit,
+        0x46 => Instruction::ChainId,
         0x50 => Instruction::Pop,
         0x51 => Instruction::MLoad,
         0x52 => Instruction::MStore,
@@ -294,6 +296,7 @@ pub enum Instruction {
     Number,
     Difficulty,
     GasLimit,
+    ChainId,
     Pop,
     MLoad,
     MStore,
@@ -404,6 +407,7 @@ impl Instruction {
             | Self::CallDataSize
             | Self::CodeSize
             | Self::GasPrice
+            | Self::ChainId
             | Self::Coinbase
             | Self::Timestamp
             | Self::Number

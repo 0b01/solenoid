@@ -1,46 +1,56 @@
-// sha3.h
-// 19-Nov-11  Markku-Juhani O. Saarinen <mjos@iki.fi>
+/* sha3 - an implementation of Secure Hash Algorithm 3 (Keccak).
+ * based on the
+ * The Keccak SHA-3 submission. Submission to NIST (Round 3), 2011
+ * by Guido Bertoni, Joan Daemen, Michaël Peeters and Gilles Van Assche
+ *
+ * Copyright: 2013 Aleksey Kravchenko <rhash.admin@gmail.com>
+ *
+ * Permission is hereby granted,  free of charge,  to any person  obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction,  including without limitation
+ * the rights to  use, copy, modify,  merge, publish, distribute, sublicense,
+ * and/or sell copies  of  the Software,  and to permit  persons  to whom the
+ * Software is furnished to do so.
+ *
+ * This program  is  distributed  in  the  hope  that it will be useful,  but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ * or FITNESS FOR A PARTICULAR PURPOSE.  Use this program  at  your own risk!
+ */
 
-#ifndef SHA3_H
-#define SHA3_H
+#ifndef __KECCAK256_H_
+#define __KECCAK256_H_
 
-#include <stddef.h>
 #include <stdint.h>
 
-#ifndef KECCAKF_ROUNDS
-#define KECCAKF_ROUNDS 24
-#endif
+#define sha3_max_permutation_size 25
+#define sha3_max_rate_in_qwords 24
 
-#ifndef ROTL64
-#define ROTL64(x, y) (((x) << (y)) | ((x) >> (64 - (y))))
-#endif
+typedef struct SHA3_CTX {
+    /* 1600 bits algorithm hashing state */
+    uint64_t hash[sha3_max_permutation_size];
+    /* 1536-bit buffer for leftovers */
+    uint64_t message[sha3_max_rate_in_qwords];
+    /* count of bytes in the message[] buffer */
+    uint16_t rest;
+    /* size of a message block processed at once */
+    //unsigned block_size;
+} SHA3_CTX;
 
-// state context
-typedef struct {
-    union {                                 // state:
-        uint8_t b[200];                     // 8-bit bytes
-        uint64_t q[25];                     // 64-bit words
-    } st;
-    int pt, rsiz, mdlen;                    // these don't overflow
-} sha3_ctx_t;
 
-// Compression function.
-void sha3_keccakf(uint64_t st[25]);
+#ifdef __cplusplus
+extern "C" {
+#endif  /* __cplusplus */
 
-// OpenSSL - like interfece
-int sha3_init(sha3_ctx_t *c, int mdlen);    // mdlen = hash output in bytes
-int sha3_update(sha3_ctx_t *c, const void *data, size_t len);
-int sha3_final(void *md, sha3_ctx_t *c);    // digest goes to md
 
-// compute a sha3 hash (md) of given byte length from "in"
-void *sha3(const void *in, size_t inlen, void *md, int mdlen);
+void keccak_init(SHA3_CTX *ctx);
+void keccak_update(SHA3_CTX *ctx, const unsigned char *msg, uint16_t size);
+void keccak_final(SHA3_CTX *ctx, unsigned char* result);
 
-// SHAKE128 and SHAKE256 extensible-output functions
-#define shake128_init(c) sha3_init(c, 16)
-#define shake256_init(c) sha3_init(c, 32)
-#define shake_update sha3_update
+void keccak256(const unsigned char *msg, uint16_t size, unsigned char* result);
 
-void shake_xof(sha3_ctx_t *c);
-void shake_out(sha3_ctx_t *c, void *out, size_t len);
 
-#endif
+#ifdef __cplusplus
+}
+#endif  /* __cplusplus */
+
+#endif  /* __KECCAK256_H_ */
