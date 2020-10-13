@@ -48,7 +48,6 @@ struct Contracts {
     contracts: HashMap<String, Contract>,
 }
 
-
 fn main() {
     env_logger::init();
 
@@ -70,16 +69,16 @@ fn main() {
     let module = context.create_module("contracts");
     for (name, contract) in &contracts.contracts {
         let name = name.split(":").last().unwrap();
-
         let builder = context.create_builder();
+        let mut compiler = Compiler::new(&context, &builder, &module);
 
         info!("Compiling {} constructor", name);
         let (instrs, payload) = contract.parse(false);
-        Compiler::codegen(&context, &builder, &module, &instrs, &payload, name, false);
+        compiler.compile(&builder, &instrs, &payload, name, false);
 
         info!("Compiling {} runtime", name);
         let (instrs, payload) = contract.parse(true);
-        Compiler::codegen(&context, &builder, &module, &instrs, &payload, name, true);
+        compiler.compile(&builder, &instrs, &payload, name, true);
     }
     module.print_to_file("out.ll").unwrap();
 }

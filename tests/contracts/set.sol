@@ -5,7 +5,6 @@ contract SimpleStorage {
     uint storedData;
 
     constructor() public {
-        storedData = 1;
     }
 
     function set(uint x) public {
