@@ -81,10 +81,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         is_runtime: bool,
     ) {
         if !is_runtime {
-            self.build_globals(builder, name, is_runtime);
+            self.build_globals(payload, name, is_runtime);
         }
 
-        self.build_function(builder, is_runtime);
+        self.build_function(name, is_runtime);
 
         // entry
         let entrybb = self.context.append_basic_block(self.fun.unwrap(), "entry");
