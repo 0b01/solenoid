@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use serde_json;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use log::{info, warn};
+use log::{info, warn, debug};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "solenoid", about = "solenoid compiler toolchain")]
@@ -51,7 +51,6 @@ struct Contracts {
 fn main() {
     env_logger::init();
 
-
     let opt = Opt::from_args();
 
     let cmd = Command::new("solc")
@@ -74,10 +73,12 @@ fn main() {
 
         info!("Compiling {} constructor", name);
         let (instrs, payload) = contract.parse(false);
+        // debug!("Constructor instrs: {:#?}", instrs);
         compiler.compile(&builder, &instrs, &payload, name, false);
 
         info!("Compiling {} runtime", name);
         let (instrs, payload) = contract.parse(true);
+        // debug!("Runtime instrs: {:#?}", instrs);
         compiler.compile(&builder, &instrs, &payload, name, true);
     }
     module.print_to_file("out.ll").unwrap();

@@ -2,3 +2,4 @@
 Cargo.lock
 out.*
 a.out
+*.o

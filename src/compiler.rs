@@ -22,11 +22,13 @@ fn nibble2i256(vals: &[u8]) -> Vec<u64> {
     let mut vals = vals.to_vec();
     vals.reverse();
     for values in vals.chunks(32) {
-        let mut out = 0;
-        for &i in values.iter().rev() {
-            out = out << 8 | i as u64;
+        for nibbles in values.chunks(8) {
+            let mut out = 0;
+            for &i in nibbles.iter().rev() {
+                out = out << 8 | i as u64;
+            }
+            ret.push(out);
         }
-        ret.push(out);
     }
     ret
 }
@@ -118,10 +120,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         builder.position_at_end(mainbb);
 
         for (offset, instr) in instrs {
-            if Option::None == self.build_instr(*offset, instr, builder) {
+            if Option::None == self.build_instr(*offset, instr, builder, is_runtime) {
+                warn!("Stopping compilation early.");
                 break;
             }
         }
+        info!("Finished.");
         builder.build_return(None);
     }
 
@@ -129,11 +133,37 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         builder.position_at_end(self.jumpbb.unwrap());
         let sp = self.build_sp(builder);
         let dest = self.build_peek(builder, sp, 1, "dest");
-        let _sp = self.build_decr(builder, sp, 2);
+        let _sp = self.build_decr(builder, sp, 1);
         let cases = self.jumpdests.iter()
             .map(|(offset, bb)|
                 (self.i256_ty.const_int(*offset as u64, false), *bb)).collect::<Vec<_>>();
         builder.build_switch(dest, self.errbb.unwrap(), &cases);
+    }
+
+    fn upow(&self, builder: &'a Builder<'ctx>) -> FunctionValue<'ctx> {
+        let name = "upow";
+        if let Some(f) = self.module.get_function(&name) {
+            return f;
+        }
+
+        // upow
+        let ty = self.i256_ty.ptr_type(AddressSpace::Generic).into();
+        let fn_ty = self.context.void_type().fn_type(&[ty, ty, ty], false);
+        let upow = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
+        upow
+    }
+
+    fn sha3(&self, builder: &'a Builder<'ctx>) -> FunctionValue<'ctx> {
+        let name = "sha3";
+        if let Some(f) = self.module.get_function(&name) {
+            return f;
+        }
+
+        let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic);
+        let fn_ty = char_ptr_ty.fn_type(&[char_ptr_ty.into(), self.context.i64_type().into(), char_ptr_ty.into(), self.context.i32_type().into()],false);
+        let sha3 = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
+
+        sha3
     }
 
     fn dump_stack(&self, builder: &'a Builder<'ctx>) -> FunctionValue<'ctx> {
@@ -142,13 +172,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             return f;
         }
 
-        // dump_stack
-        let str_ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
-        let fn_ty = self.context.void_type().fn_type(&[str_ty],false);
+        let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
+        let fn_ty = self.context.void_type().fn_type(&[char_ptr_ty],false);
         let dump_stack = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
 
-        let readonly = self.context.create_string_attribute("readonly", "true");
-        dump_stack.add_attribute(inkwell::attributes::AttributeLoc::Function, readonly);
+        // TODO:
+        // let readonly = self.context.create_string_attribute("readonly", "true");
+        // dump_stack.add_attribute(inkwell::attributes::AttributeLoc::Function, readonly);
         dump_stack
     }
 
@@ -307,18 +337,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Build instruction
-    fn build_instr(&self, offset: usize, instr: &Instruction, builder: &'a Builder<'ctx>) -> Option<()> {
+    fn build_instr(&self, offset: usize, instr: &Instruction, builder: &'a Builder<'ctx>, is_runtime: bool) -> Option<()> {
         // dbg!((offset, instr));
         match instr {
-            Instruction::Stop |
             Instruction::SignExtend |
-            Instruction::Byte |
-            Instruction::Sha3 |
             Instruction::Addr |
             Instruction::Balance |
             Instruction::Origin |
             Instruction::Caller |
-            Instruction::CallDataLoad |
             Instruction::CallDataCopy |
             Instruction::CodeSize |
             Instruction::GasPrice |
@@ -332,24 +358,86 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::Timestamp |
             Instruction::Number |
             Instruction::Difficulty |
-            Instruction::MStore8 |
             Instruction::SLoad |
-            Instruction::Jump |
             Instruction::PC |
             Instruction::MSize |
             Instruction::Gas |
             Instruction::GasLimit |
-            Instruction::Log(_) |
             Instruction::Create |
             Instruction::Call |
             Instruction::CallCode |
             Instruction::DelegateCall |
             Instruction::Create2 |
             Instruction::StaticCall |
-            Instruction::SStore |
+            Instruction::SStore => {
+                error!("unimpl: {:?}", instr);
+            }
+            Instruction::Sha3 => {
+                error!("sha3 is not working yet"); // TODO:
+                let name = "sha3";
+                self.push_label(name, builder);
+                let sp = self.build_sp(builder);
+                let length = self.build_peek(builder, sp, 2, "length");
+                let offset = self.build_peek(builder, sp, 1, "offset");
+                let sp = self.build_decr(builder, sp, 2);
+
+                let length = builder.build_int_cast(length, self.context.i64_type(), "length");
+                
+                let mem = self.mem.unwrap().as_pointer_value();
+                let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.context.i64_type().const_zero(), offset], "stack") };
+                let addr = builder.build_pointer_cast(addr, self.context.i8_type().ptr_type(AddressSpace::Generic), "addr");
+
+                let stack = self.stack.unwrap().as_pointer_value();
+                let tos = unsafe { builder.build_in_bounds_gep(stack, &[self.context.i64_type().const_zero(), sp], "stack") };
+                let tos = builder.build_pointer_cast(tos, self.context.i8_type().ptr_type(AddressSpace::Generic), "tos");
+
+                let func = builder.build_call(
+                    self.sha3(builder), 
+                    &[
+                        addr.into(), 
+                        length.into(), 
+                        tos.into(), 
+                        self.context.i32_type().const_int(32, false).into(),
+                    ], 
+                    "hash");
+                self.build_incr(builder, sp, 1);
+            }
+            Instruction::Byte => {
+                let name = "byte";
+                self.push_label(name, builder);
+                let sp = self.build_sp(builder);
+                let x = self.build_peek(builder, sp, 2, "x");
+                let i = self.build_peek(builder, sp, 1, "x");
+                let sp = self.build_decr(builder, sp, 2);
+                // y = (x >> (248 - i * 8)) & 0xFF	
+                let i = builder.build_left_shift(i, self.i256_ty.const_int(3, false), "i");
+                let sub = builder.build_int_sub(self.i256_ty.const_int(248, false), i, "sub");
+                let rr = builder.build_right_shift(x, sub, false, "rr");
+                let value = builder.build_and(rr, self.i256_ty.const_int(0xFF, false), "ret").into();
+                self.build_push(builder, value, sp);
+            }
+            Instruction::Log(_) => {
+                error!("Event emission is unimpl: {:?}", instr);
+            }
+            Instruction::Stop => {
+                let name = "stop";
+                self.push_label(name, builder);
+                builder.build_return(None);
+            }
             Instruction::SelfDestruct => {
                 error!("{:#?}", instr);
                 return None;
+            }
+            Instruction::CallDataLoad => {
+                let name = "calldataload";
+                self.push_label(name, builder);
+                let sp = self.build_sp(builder);
+                let (idx, sp) = self.build_pop(builder, sp);
+                let calldata = self.fun.unwrap().get_nth_param(0).unwrap().into_pointer_value();
+                let idx = builder.build_int_cast(idx, self.context.i64_type(), "idx");
+                let ptr = unsafe { builder.build_gep(calldata, &[idx], name)};
+                let value = builder.build_load(ptr, "value");
+                self.build_push(builder, value, sp);
             }
             Instruction::CallDataSize => {
                 let name = "calldatasize";
@@ -360,8 +448,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.build_push(builder, calldatasize, sp);
             }
             Instruction::Invalid => {
-                warn!("Invalid instruction encountered. Halting compilation!");
-                return None;
+                let name = "invalid";
+                self.push_label(name, builder);
+                builder.build_unconditional_branch(self.errbb.unwrap());
+                self.pop_label();
+
+                if is_runtime {
+                    warn!("Invalid instruction encountered. Continuing compilation!");
+                    return Some(())
+                } else {
+                    warn!("Invalid instruction encountered. Halting compilation!");
+                    return None;
+                }
             }
             Instruction::Return => {
                 let name = "return";
@@ -414,16 +512,26 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.push_label(name, builder);
                 builder.build_unconditional_branch(self.errbb.unwrap());
             }
+            Instruction::Jump => {
+                let name = "jumpi";
+                self.push_label(name, builder);
+                // noop, jumpbb pops off the new pc
+                builder.build_unconditional_branch(self.jumpbb.unwrap());
+            }
             Instruction::JumpIf => {
                 let name = "jumpi";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let cond = self.build_peek(builder, sp, 2, "cond");
+                // we pop everything and then push jump addr on to the stack
+                let (new_pc, sp) = self.build_pop(builder, sp);
+                let (cond, sp) = self.build_pop(builder, sp);
+                self.build_push(builder, new_pc.into(), sp);
                 let cond = builder.build_int_compare(IntPredicate::EQ, cond, self.i256_ty.const_int(1, false), "cond");
 
                 let else_block = self.context.insert_basic_block_after(builder.get_insert_block().unwrap(), "else");
                 builder.build_conditional_branch(cond, self.jumpbb.unwrap(), else_block);
                 builder.position_at_end(else_block);
+
             }
             Instruction::IsZero => {
                 let name = "iszero";
@@ -489,6 +597,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.context.i64_type().const_zero(), offset], "stack") };
                 let _value = builder.build_load(addr, "value");
             }
+            Instruction::MStore8 => {
+                let name = "mstore8";
+                self.push_label(name, builder);
+                let sp = self.build_sp(builder);
+                let offset = self.build_peek(builder, sp, 1, "offset");
+                let value = self.build_peek(builder, sp, 2, "value");
+                let value = builder.build_int_truncate(value, self.context.i8_type(), "trunc");
+                let _sp = self.build_decr(builder, sp, 2);
+                let offset = builder.build_int_truncate_or_bit_cast(offset, self.context.i64_type(), "idx");
+
+                let mem = self.mem.unwrap().as_pointer_value();
+                let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.context.i64_type().const_zero(), offset], "stack") };
+                let addr = builder.build_pointer_cast(addr, self.i256_ty.ptr_type(AddressSpace::Generic), "addr");
+                builder.build_store(addr, value);
+            }
             Instruction::MStore => {
                 let name = "mstore";
                 self.push_label(name, builder);
@@ -548,14 +671,25 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.build_push(builder, value, sp);
             }
             Instruction::Exp => {
+                error!("exp implementation is broken!"); //TODO: XXX:
                 let name = "exp";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let base = self.build_peek(builder, sp, 1, "base").into();
-                let exp = self.build_peek(builder, sp, 2, "exp").into();
+                let base = self.build_peek(builder, sp, 1, "base");
+                let exp = self.build_peek(builder, sp, 2, "exp");
                 let sp = self.build_decr(builder, sp, 2);
-                let upow = self.upow(builder, 256);
-                let value = builder.build_call(upow, &[base, exp], "upow").try_as_basic_value().unwrap_left();
+                let upow = self.upow(builder);
+
+                let ret_ptr = builder.build_alloca(self.i256_ty, "ret");
+
+                let base_ptr = builder.build_alloca(self.i256_ty, "base");
+                builder.build_store(base_ptr, base);
+
+                let exp_ptr = builder.build_alloca(self.i256_ty, "exp");
+                builder.build_store(exp_ptr, exp);
+
+                builder.build_call(upow, &[ret_ptr.into(), base_ptr.into(), exp_ptr.into()], "upow");
+                let value = builder.build_load(ret_ptr, "ret");
                 self.build_push(builder, value, sp);
             }
             Instruction::Mod => {
@@ -683,7 +817,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let lhs = self.build_peek(builder, sp, 1, "a");
                 let rhs = self.build_peek(builder, sp, 2, "b");
                 let sp = self.build_decr(builder, sp, 2);
-                let value = builder.build_int_compare(IntPredicate::ULT, lhs, rhs, "lt").into();
+                let value = builder.build_int_compare(IntPredicate::ULT, lhs, rhs, "lt");
+                let value = builder.build_int_cast(value, self.i256_ty, "value").into();
                 self.build_push(builder, value, sp);
             }
             Instruction::Gt => {
@@ -693,7 +828,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let lhs = self.build_peek(builder, sp, 1, "a");
                 let rhs = self.build_peek(builder, sp, 2, "b");
                 let sp = self.build_decr(builder, sp, 2);
-                let value = builder.build_int_compare(IntPredicate::UGT, lhs, rhs, "lt").into();
+                let value = builder.build_int_compare(IntPredicate::UGT, lhs, rhs, "lt");
+                let value = builder.build_int_cast(value, self.i256_ty, "value").into();
                 self.build_push(builder, value, sp);
             }
             Instruction::SLt => {
@@ -703,7 +839,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let lhs = self.build_peek(builder, sp, 1, "a");
                 let rhs = self.build_peek(builder, sp, 2, "b");
                 let sp = self.build_decr(builder, sp, 2);
-                let value = builder.build_int_compare(IntPredicate::SLT, lhs, rhs, "lt").into();
+                let value = builder.build_int_compare(IntPredicate::SLT, lhs, rhs, "lt");
+                let value = builder.build_int_cast(value, self.i256_ty, "value").into();
                 self.build_push(builder, value, sp);
             }
             Instruction::SGt => {
@@ -713,7 +850,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let lhs = self.build_peek(builder, sp, 1, "a");
                 let rhs = self.build_peek(builder, sp, 2, "b");
                 let sp = self.build_decr(builder, sp, 2);
-                let value = builder.build_int_compare(IntPredicate::SGT, lhs, rhs, "lt").into();
+                let value = builder.build_int_compare(IntPredicate::SGT, lhs, rhs, "lt");
+                let value = builder.build_int_cast(value, self.i256_ty, "value").into();
                 self.build_push(builder, value, sp);
             }
             Instruction::EQ => {
@@ -723,7 +861,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let lhs = self.build_peek(builder, sp, 1, "a");
                 let rhs = self.build_peek(builder, sp, 2, "b");
                 let sp = self.build_decr(builder, sp, 2);
-                let value = builder.build_int_compare(IntPredicate::EQ, lhs, rhs, "lt").into();
+                let value = builder.build_int_compare(IntPredicate::EQ, lhs, rhs, "lt");
+                let value = builder.build_int_cast(value, self.i256_ty, "value").into();
                 self.build_push(builder, value, sp);
             }
             Instruction::Pop => {
@@ -733,6 +872,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let (_ret, _sp) = self.build_pop(builder, sp);
             }
             Instruction::Push(vals) => {
+                assert!(vals.len() <= 32);
                 self.push_label("push", builder);
                 let sp = self.build_sp(builder);
                 let value = self.i256_ty.const_int_arbitrary_precision(&nibble2i256(vals)).into();
@@ -743,207 +883,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.pop_label();
         Some(())
     }
-
-    /// From
-    /// https://github.com/hyperledger-labs/solang/blob/2dfd46dfc3b709c2c8e233ee4e7f27380fd58964/src/emit/mod.rs#L4709
-    pub fn upow(&self, builder: &'a Builder<'ctx>, bit: u32) -> FunctionValue<'ctx> {
-        /*
-            int ipow(int base, int exp)
-            {
-                int result = 1;
-                for (;;)
-                {
-                    if (exp & 1)
-                        result *= base;
-                    exp >>= 1;
-                    if (!exp)
-                        break;
-                    base *= base;
-                }
-                return result;
-            }
-        */
-        let name = format!("__upower{}", bit);
-        let ty = self.context.custom_width_int_type(bit);
-
-        if let Some(f) = self.module.get_function(&name) {
-            return f;
-        }
-
-        let pos = builder.get_insert_block().unwrap();
-
-        // __upower(base, exp)
-        let function =
-            self.module
-                .add_function(&name, ty.fn_type(&[ty.into(), ty.into()], false), None);
-
-        let entry = self.context.append_basic_block(function, "entry");
-        let loop_block = self.context.append_basic_block(function, "loop");
-        let multiply = self.context.append_basic_block(function, "multiply");
-        let nomultiply = self.context.append_basic_block(function, "nomultiply");
-        let done = self.context.append_basic_block(function, "done");
-        let notdone = self.context.append_basic_block(function, "notdone");
-
-        builder.position_at_end(entry);
-
-        let l = builder.build_alloca(ty, "");
-        let r = builder.build_alloca(ty, "");
-        let o = builder.build_alloca(ty, "");
-
-        builder.build_unconditional_branch(loop_block);
-
-        builder.position_at_end(loop_block);
-        let base = builder.build_phi(ty, "base");
-        base.add_incoming(&[(&function.get_nth_param(0).unwrap(), entry)]);
-
-        let exp = builder.build_phi(ty, "exp");
-        exp.add_incoming(&[(&function.get_nth_param(1).unwrap(), entry)]);
-
-        let result = builder.build_phi(ty, "result");
-        result.add_incoming(&[(&ty.const_int(1, false), entry)]);
-
-        let lowbit = builder.build_int_truncate(
-            exp.as_basic_value().into_int_value(),
-            self.context.bool_type(),
-            "bit",
-        );
-
-        builder
-            .build_conditional_branch(lowbit, multiply, nomultiply);
-
-        builder.position_at_end(multiply);
-
-        let result2 = if bit > 64 {
-            builder
-                .build_store(l, result.as_basic_value().into_int_value());
-            builder
-                .build_store(r, base.as_basic_value().into_int_value());
-
-            builder.build_call(
-                self.module.get_function("__mul32").unwrap(),
-                &[
-                    builder
-                        .build_pointer_cast(
-                            l,
-                            self.context.i32_type().ptr_type(AddressSpace::Generic),
-                            "left",
-                        )
-                        .into(),
-                    builder
-                        .build_pointer_cast(
-                            r,
-                            self.context.i32_type().ptr_type(AddressSpace::Generic),
-                            "right",
-                        )
-                        .into(),
-                    builder
-                        .build_pointer_cast(
-                            o,
-                            self.context.i32_type().ptr_type(AddressSpace::Generic),
-                            "output",
-                        )
-                        .into(),
-                    self.context
-                        .i32_type()
-                        .const_int(bit as u64 / 32, false)
-                        .into(),
-                ],
-                "",
-            );
-
-            builder.build_load(o, "result").into_int_value()
-        } else {
-            builder.build_int_mul(
-                result.as_basic_value().into_int_value(),
-                base.as_basic_value().into_int_value(),
-                "result",
-            )
-        };
-
-        builder.build_unconditional_branch(nomultiply);
-        builder.position_at_end(nomultiply);
-
-        let result3 = builder.build_phi(ty, "result");
-        result3.add_incoming(&[(&result.as_basic_value(), loop_block), (&result2, multiply)]);
-
-        let exp2 = builder.build_right_shift(
-            exp.as_basic_value().into_int_value(),
-            ty.const_int(1, false),
-            false,
-            "exp",
-        );
-        let zero = builder.build_int_compare(IntPredicate::EQ, exp2, ty.const_zero(), "zero");
-
-        builder.build_conditional_branch(zero, done, notdone);
-
-        builder.position_at_end(done);
-
-        builder.build_return(Some(&result3.as_basic_value()));
-
-        builder.position_at_end(notdone);
-
-        let base2 = if bit > 64 {
-            builder
-                .build_store(l, base.as_basic_value().into_int_value());
-            builder
-                .build_store(r, base.as_basic_value().into_int_value());
-
-            builder.build_call(
-                self.module.get_function("__mul32").unwrap(),
-                &[
-                    builder
-                        .build_pointer_cast(
-                            l,
-                            self.context.i32_type().ptr_type(AddressSpace::Generic),
-                            "left",
-                        )
-                        .into(),
-                    builder
-                        .build_pointer_cast(
-                            r,
-                            self.context.i32_type().ptr_type(AddressSpace::Generic),
-                            "right",
-                        )
-                        .into(),
-                    builder
-                        .build_pointer_cast(
-                            o,
-                            self.context.i32_type().ptr_type(AddressSpace::Generic),
-                            "output",
-                        )
-                        .into(),
-                    self.context
-                        .i32_type()
-                        .const_int(bit as u64 / 32, false)
-                        .into(),
-                ],
-                "",
-            );
-
-            builder.build_load(o, "base").into_int_value()
-        } else {
-            builder.build_int_mul(
-                base.as_basic_value().into_int_value(),
-                base.as_basic_value().into_int_value(),
-                "base",
-            )
-        };
-
-        base.add_incoming(&[(&base2, notdone)]);
-        result.add_incoming(&[(&result3.as_basic_value(), notdone)]);
-        exp.add_incoming(&[(&exp2, notdone)]);
-
-        builder.build_unconditional_branch(loop_block);
-
-        builder.position_at_end(pos);
-
-        function
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hex::FromHex;
 
     #[test]
     fn codegen() {
@@ -966,10 +911,17 @@ mod tests {
             // Instruction::Revert,
             // Instruction::JumpDest,
             // Instruction::Pop,
-            Instruction::Push(vec![0xA]),
-            Instruction::Push(vec![0xB]),
-            Instruction::Push(vec![0xC]),
-            Instruction::Swap(2),
+
+            // Instruction::Push(vec![0x2]),
+            // Instruction::Push(vec![0x3]),
+            // Instruction::Exp,
+
+            Instruction::Push(vec![0x74, 0x65, 0x73, 0x74]),
+            Instruction::Push(vec![0]),
+            Instruction::MStore,
+            Instruction::Push(vec![4]),
+            Instruction::Push(vec![0]),
+            Instruction::Sha3,
         ];
         let bytes = crate::evm_opcode::assemble_instructions(instrs);
         let instrs = crate::evm_opcode::Disassembly::from_bytes(&bytes).unwrap().instructions;
@@ -978,5 +930,17 @@ mod tests {
         compiler.compile(&builder, &instrs, &bytes, "test", false);
         // compiler.dbg();
         module.print_to_file("out.ll").unwrap();
+    }
+
+    #[test]
+    fn test_nibbles2i256() {
+        let nibbles = vec![0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41];
+        let ret = nibble2i256(&nibbles);
+        assert_eq!(vec![
+            0x4141414141414141,
+            0x4141414141414141,
+            0x4141414141414141,
+            0x4141414141414141,
+        ], ret);
     }
 }
