@@ -34,6 +34,17 @@ void dump_stack(char* label) {
     printf("\n");
 }
 
+void sload(char* key, char* out_value) {
+
+}
+
+/* key, value are both i256 */
+void sstore(char* key, char* value) {
+    for(int i = 0; i < 32; i++) {
+        printf("%02X\n", key[i]);
+    }
+}
+
 int main() {
     long offset = 0, length = 0;
     contract_constructor(NULL, 0, &offset, &length);

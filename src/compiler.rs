@@ -161,14 +161,38 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic);
         let fn_ty = self.context.void_type().fn_type(
             &[
-                    char_ptr_ty.into(), 
-                    self.context.i16_type().into(), 
-                    char_ptr_ty.into(), 
+                    char_ptr_ty.into(),
+                    self.context.i16_type().into(),
+                    char_ptr_ty.into(),
                 ],
                 false);
         let sha3 = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
 
         sha3
+    }
+
+    fn sstore(&self) -> FunctionValue<'ctx> {
+        let name = "sstore";
+        if let Some(f) = self.module.get_function(&name) {
+            return f;
+        }
+
+        let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
+        let fn_ty = self.context.void_type().fn_type(&[char_ptr_ty, char_ptr_ty],false);
+        let sstore = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
+        sstore
+    }
+
+    fn sload(&self) -> FunctionValue<'ctx> {
+        let name = "sload";
+        if let Some(f) = self.module.get_function(&name) {
+            return f;
+        }
+
+        let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
+        let fn_ty = self.context.void_type().fn_type(&[char_ptr_ty, char_ptr_ty],false);
+        let sload = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
+        sload
     }
 
     fn dump_stack(&self) -> FunctionValue<'ctx> {
@@ -364,7 +388,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::Timestamp |
             Instruction::Number |
             Instruction::Difficulty |
-            Instruction::SLoad |
             Instruction::PC |
             Instruction::MSize |
             Instruction::Gas |
@@ -374,12 +397,43 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::CallCode |
             Instruction::DelegateCall |
             Instruction::Create2 |
-            Instruction::StaticCall |
-            Instruction::SStore => {
+            Instruction::StaticCall => {
                 error!("unimpl: {:?}", instr);
             }
+            Instruction::SLoad =>  {
+                let name = "sload";
+                self.push_label(name, builder);
+                let sp = self.build_sp(builder);
+                let (value, sp) = self.build_pop(builder, sp);
+                let ret = builder.build_alloca(self.i256_ty, "ret");
+                let ret_char_ptr = builder.build_pointer_cast(ret, self.context.i8_type().ptr_type(AddressSpace::Generic), "retptr");
+                let val_ptr = builder.build_int_to_ptr(value, self.context.i8_type().ptr_type(AddressSpace::Generic), "val_ptr");
+                builder.build_call(self.sload(), &[val_ptr.into(), ret_char_ptr.into()], "sload");
+                let ret = builder.build_load(ret, "ret");
+                self.build_push(builder, ret, sp);
+                // TODO: pass tos directly as out param
+            }
+            Instruction::SStore => {
+                let name = "sstore";
+                self.push_label(name, builder);
+                let sp = self.build_sp(builder);
+                let value = self.build_peek(builder, sp, 2, "value");
+                let key = self.build_peek(builder, sp, 1, "key");
+                self.build_decr(builder, sp, 2);
+
+                let val_ptr = builder.build_alloca(self.i256_ty, "val");
+                let key_ptr = builder.build_alloca(self.i256_ty, "key");
+
+                builder.build_store(val_ptr, value);
+                builder.build_store(key_ptr, key);
+
+                let val_ptr = builder.build_pointer_cast(val_ptr, self.context.i8_type().ptr_type(AddressSpace::Generic), "val_ptr_i8");
+                let key_ptr = builder.build_pointer_cast(key_ptr, self.context.i8_type().ptr_type(AddressSpace::Generic), "key_ptr_i8");
+
+                builder.build_call(self.sstore(), &[key_ptr.into(), val_ptr.into()], "sstore");
+                //TODO: check return result
+            }
             Instruction::Sha3 => {
-                error!("sha3 is not working yet"); // TODO:
                 let name = "sha3";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
@@ -388,7 +442,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let sp = self.build_decr(builder, sp, 2);
 
                 let length = builder.build_int_cast(length, self.context.i16_type(), "length");
-                
+
                 let mem = self.mem.unwrap().as_pointer_value();
                 let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.context.i64_type().const_zero(), offset], "stack") };
                 let addr = builder.build_pointer_cast(addr, self.context.i8_type().ptr_type(AddressSpace::Generic), "addr");
@@ -398,12 +452,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let tos = builder.build_pointer_cast(tos, self.context.i8_type().ptr_type(AddressSpace::Generic), "tos");
 
                 let _func = builder.build_call(
-                    self.sha3(), 
+                    self.sha3(),
                     &[
-                        addr.into(), 
-                        length.into(), 
-                        tos.into(), 
-                    ], 
+                        addr.into(),
+                        length.into(),
+                        tos.into(),
+                    ],
                     "hash");
                 self.build_incr(builder, sp, 1);
             }
@@ -414,7 +468,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let x = self.build_peek(builder, sp, 2, "x");
                 let i = self.build_peek(builder, sp, 1, "x");
                 let sp = self.build_decr(builder, sp, 2);
-                // y = (x >> (248 - i * 8)) & 0xFF	
+                // y = (x >> (248 - i * 8)) & 0xFF
                 let i = builder.build_left_shift(i, self.i256_ty.const_int(3, false), "i");
                 let sub = builder.build_int_sub(self.i256_ty.const_int(248, false), i, "sub");
                 let rr = builder.build_right_shift(x, sub, false, "rr");
@@ -683,7 +737,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let base = self.build_peek(builder, sp, 1, "base");
                 let exp = self.build_peek(builder, sp, 2, "exp");
                 let sp = self.build_decr(builder, sp, 2);
-                
+
                 let ret_ptr = builder.build_alloca(self.i256_ty, "ret");
 
                 let base_ptr = builder.build_alloca(self.i256_ty, "base");
@@ -892,7 +946,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
 
     #[test]
     fn codegen() {
@@ -920,12 +974,16 @@ mod tests {
             // Instruction::Push(vec![0x3]),
             // Instruction::Exp,
 
-            Instruction::Push(vec![0x74, 0x65, 0x73, 0x74]),
-            Instruction::Push(vec![0]),
-            Instruction::MStore,
-            Instruction::Push(vec![4]),
-            Instruction::Push(vec![0]),
-            Instruction::Sha3,
+            // Instruction::Push(vec![0x74, 0x65, 0x73, 0x74]),
+            // Instruction::Push(vec![0]),
+            // Instruction::MStore,
+            // Instruction::Push(vec![4]),
+            // Instruction::Push(vec![0]),
+            // Instruction::Sha3,
+
+            Instruction::Push(vec![1]),
+            Instruction::Push(vec![1]),
+            Instruction::SStore,
         ];
         let bytes = crate::evm_opcode::assemble_instructions(instrs);
         let instrs = crate::evm_opcode::Disassembly::from_bytes(&bytes).unwrap().instructions;

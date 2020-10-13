@@ -242,7 +242,7 @@ void keccak_final(SHA3_CTX *ctx, unsigned char* result)
     }
 }
 
-void inplace_reverse(char * str, uint16_t len)
+void inplace_reverse(char* str, uint16_t len)
 {
   if (str)
   {
@@ -257,7 +257,7 @@ void inplace_reverse(char * str, uint16_t len)
       a ^= b;\
     } while (0)
 
-    // walk inwards from both ends of the string, 
+    // walk inwards from both ends of the string,
     // swapping until we get to the middle
     while (str < end)
     {
@@ -270,13 +270,12 @@ void inplace_reverse(char * str, uint16_t len)
 }
 
 void keccak256(const unsigned char *msg, uint16_t size, unsigned char* result) {
-    inplace_reverse(msg, size);
+    inplace_reverse((char*)msg, size);
 
-    printf("%s\n", msg);
     SHA3_CTX ctx;
     keccak_init(&ctx);
     keccak_update(&ctx, msg, size);
     keccak_final(&ctx, result);
 
-    inplace_reverse(result, 32);
+    inplace_reverse((char*)result, 32);
 }
