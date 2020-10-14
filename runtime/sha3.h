@@ -21,6 +21,7 @@
 #define __KECCAK256_H_
 
 #include <stdint.h>
+#include "utils.h"
 
 #define sha3_max_permutation_size 25
 #define sha3_max_rate_in_qwords 24

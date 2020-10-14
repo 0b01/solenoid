@@ -13,7 +13,7 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
 
-use log::{info, warn, error};
+use log::{info, warn, error, debug};
 
 const DEBUG: bool = true;
 
@@ -40,6 +40,7 @@ pub struct Compiler<'a, 'ctx> {
 
     i256_ty: IntType<'ctx>,
     sp: Option<GlobalValue<'ctx>>,
+    pc: Option<GlobalValue<'ctx>>,
     stack: Option<GlobalValue<'ctx>>,
     mem: Option<GlobalValue<'ctx>>,
     code: Option<GlobalValue<'ctx>>,
@@ -61,6 +62,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             i256_ty: context.custom_width_int_type(256),
             module,
             sp: None,
+            pc: None,
             stack: None,
             mem: None,
             code: None,
@@ -120,19 +122,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         for (offset, instr) in instrs {
             if Option::None == self.build_instr(*offset, instr, builder, is_runtime) {
-                warn!("Stopping compilation early.");
+                info!("Stopping compilation early.");
                 break;
             }
         }
-        info!("Finished.");
         builder.build_return(None);
     }
 
     fn build_jumpbb(&self, builder: &'a Builder<'ctx>) {
         builder.position_at_end(self.jumpbb.unwrap());
         let sp = self.build_sp(builder);
-        let dest = self.build_peek(builder, sp, 1, "dest");
-        let _sp = self.build_decr(builder, sp, 1);
+        let (dest, _sp) = self.build_pop(builder, sp);
         let cases = self.jumpdests.iter()
             .map(|(offset, bb)|
                 (self.i256_ty.const_int(*offset as u64, false), *bb)).collect::<Vec<_>>();
@@ -195,6 +195,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         sload
     }
 
+    fn swap_endianness(&self) -> FunctionValue<'ctx> {
+        let name = "swap_endianness";
+        if let Some(f) = self.module.get_function(&name) {
+            return f;
+        }
+
+        let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
+        let fn_ty = self.context.void_type().fn_type(&[char_ptr_ty],false);
+        let swap_endianness = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
+        swap_endianness
+    }
+
     fn dump_stack(&self) -> FunctionValue<'ctx> {
         let name = "dump_stack";
         if let Some(f) = self.module.get_function(&name) {
@@ -224,6 +236,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let sp = self.module.add_global(i64_ty, Some(AddressSpace::Generic), "sp");
         sp.set_initializer(&i64_ty.const_int(0, false));
 
+        // pc
+        let pc = self.module.add_global(i64_ty, Some(AddressSpace::Generic), "pc");
+        pc.set_initializer(&i64_ty.const_int(0, false));
+
         // mem
         let i8_array_ty = self.context.i8_type().array_type(1024 * 32);
         let mem = self.module.add_global(i8_array_ty, Some(AddressSpace::Generic), "mem");
@@ -239,6 +255,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         self.stack = Some(stack);
         self.sp = Some(sp);
+        self.pc = Some(pc);
         self.mem = Some(mem);
         self.code = Some(code);
     }
@@ -355,20 +372,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Push a value onto stack
-    fn build_push(&self, builder: &'a Builder<'ctx>, value: BasicValueEnum<'ctx>, sp: IntValue<'ctx>) -> BasicValueEnum<'ctx> {
+    fn build_push(&self, builder: &'a Builder<'ctx>, value: BasicValueEnum<'ctx>, sp: IntValue<'ctx>) -> IntValue<'ctx> {
         self.push_label("push", builder);
 
         let stack = self.stack.unwrap().as_pointer_value();
         let addr = unsafe { builder.build_in_bounds_gep(stack, &[self.context.i64_type().const_zero(), sp], "stack") };
         builder.build_store(addr, value);
-        self.build_incr(builder, sp, 1);
+        let sp = self.build_incr(builder, sp, 1);
         self.pop_label();
-        value
+        sp
     }
 
     /// Build instruction
     fn build_instr(&self, offset: usize, instr: &Instruction, builder: &'a Builder<'ctx>, is_runtime: bool) -> Option<()> {
-        // dbg!((offset, instr));
+        debug!("{:?}", (offset, instr));
+
+        builder.build_store(self.pc.unwrap().as_pointer_value(), self.context.i64_type().const_int(offset as u64, false));
         match instr {
             Instruction::SignExtend |
             Instruction::Addr |
@@ -408,11 +427,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let (key, sp) = self.build_pop(builder, sp);
                 let ret = builder.build_alloca(self.i256_ty, "ret");
                 let ret_char_ptr = builder.build_pointer_cast(ret, self.context.i8_type().ptr_type(AddressSpace::Generic), "retptr");
-                let key_ptr = builder.build_alloca(self.i256_ty, "val");
+                let key_ptr = builder.build_alloca(self.i256_ty, "key");
                 builder.build_store(key_ptr, key);
-                let key_ptr = builder.build_pointer_cast(key_ptr, self.context.i8_type().ptr_type(AddressSpace::Generic), "key_ptr_i8");
+                let key_char_ptr = builder.build_pointer_cast(key_ptr, self.context.i8_type().ptr_type(AddressSpace::Generic), "key_ptr_i8");
                 let storage_ptr = self.fun.unwrap().get_nth_param(4).unwrap().into_pointer_value();
-                builder.build_call(self.sload(), &[storage_ptr.into(), key_ptr.into(), ret_char_ptr.into()], "sload");
+                builder.build_call(self.sload(), &[storage_ptr.into(), key_char_ptr.into(), ret_char_ptr.into()], "sload");
                 let ret = builder.build_load(ret, "ret");
                 self.build_push(builder, ret, sp);
                 // TODO: pass tos directly as out param
@@ -499,8 +518,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let sp = self.build_sp(builder);
                 let (idx, sp) = self.build_pop(builder, sp);
                 let calldata = self.fun.unwrap().get_nth_param(0).unwrap().into_pointer_value();
-                let idx = builder.build_int_cast(idx, self.context.i64_type(), "idx");
                 let ptr = unsafe { builder.build_gep(calldata, &[idx], name)};
+                let ptr = builder.build_pointer_cast(ptr, self.i256_ty.ptr_type(AddressSpace::Generic), "ptr");
+                let value = builder.build_load(ptr, "value");
+
+                let ptr = builder.build_alloca(self.i256_ty, "val");
+                builder.build_store(ptr, value);
+                let ptr_i8 = builder.build_pointer_cast(ptr, self.context.i8_type().ptr_type(AddressSpace::Generic), "ptr_i8");
+                builder.build_call(self.swap_endianness(), &[ptr_i8.into()], "swap_endian");
                 let value = builder.build_load(ptr, "value");
                 self.build_push(builder, value, sp);
             }
@@ -578,7 +603,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 builder.build_unconditional_branch(self.errbb.unwrap());
             }
             Instruction::Jump => {
-                let name = "jumpi";
+                let name = "jump";
                 self.push_label(name, builder);
                 // noop, jumpbb pops off the new pc
                 builder.build_unconditional_branch(self.jumpbb.unwrap());
@@ -590,13 +615,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 // we pop everything and then push jump addr on to the stack
                 let (new_pc, sp) = self.build_pop(builder, sp);
                 let (cond, sp) = self.build_pop(builder, sp);
-                self.build_push(builder, new_pc.into(), sp);
+                let sp = self.build_push(builder, new_pc.into(), sp);
                 let cond = builder.build_int_compare(IntPredicate::EQ, cond, self.i256_ty.const_int(1, false), "cond");
 
                 let else_block = self.context.insert_basic_block_after(builder.get_insert_block().unwrap(), "else");
                 builder.build_conditional_branch(cond, self.jumpbb.unwrap(), else_block);
                 builder.position_at_end(else_block);
-
+                self.build_decr(builder, sp, 1); // if else branch, sp didn't get decr at jumpbb
             }
             Instruction::IsZero => {
                 let name = "iszero";
@@ -926,7 +951,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let rhs = self.build_peek(builder, sp, 2, "b");
                 let sp = self.build_decr(builder, sp, 2);
                 let value = builder.build_int_compare(IntPredicate::EQ, lhs, rhs, "lt");
-                let value = builder.build_int_cast(value, self.i256_ty, "value").into();
+                let value = builder.build_int_z_extend_or_bit_cast(value, self.i256_ty, "eq").into();
                 self.build_push(builder, value, sp);
             }
             Instruction::Pop => {
@@ -943,7 +968,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.build_push(builder, value, sp);
             }
         };
-        self.build_dump_stack(builder);
+        // self.build_dump_stack(builder);
         self.pop_label();
         Some(())
     }
