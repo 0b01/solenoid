@@ -3,8 +3,11 @@
 extern long sp;
 extern unsigned char stack[];
 extern unsigned char mem[];
-extern void contract_constructor(char*, long, long*, long*);
-// extern void contract_runtime(char*, long, long*, long*);
+extern void contract_constructor(char*, long, long*, long*, char*);
+// extern void contract_runtime(char*, long, long*, long*, char*);
+
+int occupancy = 0;
+unsigned char storage[1024*32];
 
 void dump_stack(char* label) {
     printf("----%s----\nstack:\n", label);
@@ -34,23 +37,43 @@ void dump_stack(char* label) {
     printf("\n");
 }
 
-void sload(char* key, char* out_value) {
-
+int cmp(char* a, char* b) {
+    for (int i = 0; i < 32; i++) {
+        if (a[i] != b[i]) return 0;
+    }
+    return 1;
 }
 
-/* key, value are both i256 */
-void sstore(char* key, char* value) {
-    for(int i = 0; i < 32; i++) {
-        printf("%02X\n", key[i]);
+void sload(char* st, char* key, char* ret) {
+    for (int i = 0; i < 1024 * 32; i += 64) {
+        if (cmp(st + i, key)) {
+            for (int j = 0; j < 32; j++) {
+                ret[j] = st[i+j+32];
+            }
+        }
     }
 }
 
+void sstore(char* st, char* key, char* val) {
+
+    if (occupancy == 1024) { return; }
+
+    for (int i = 0; i < 32; i++) {
+        st[64*occupancy+i] = key[i];
+    }
+    for (int i = 0; i < 32; i++) {
+        st[64*occupancy+i+32] = val[i];
+    }
+    occupancy++;
+}
+
 int main() {
+
     long offset = 0, length = 0;
-    contract_constructor(NULL, 0, &offset, &length);
+    contract_constructor(NULL, 0, &offset, &length, (char*)storage);
     printf("%ld\n%ld\n", offset, length);
 
     // unsigned char tx[36] = {0x60, 0xfe, 0x47, 0xb1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a};
-    // contract_runtime((char*)tx, sizeof(tx), &offset, &length);
+    // contract_runtime((char*)tx, sizeof(tx), &offset, &length, storage);
     // printf("%ld\n%ld\n", offset, length);
 }

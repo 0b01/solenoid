@@ -178,7 +178,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
-        let fn_ty = self.context.void_type().fn_type(&[char_ptr_ty, char_ptr_ty],false);
+        let fn_ty = self.context.void_type().fn_type(&[char_ptr_ty, char_ptr_ty, char_ptr_ty],false);
         let sstore = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
         sstore
     }
@@ -190,7 +190,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
-        let fn_ty = self.context.void_type().fn_type(&[char_ptr_ty, char_ptr_ty],false);
+        let fn_ty = self.context.void_type().fn_type(&[char_ptr_ty, char_ptr_ty, char_ptr_ty],false);
         let sload = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
         sload
     }
@@ -248,9 +248,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let ret_offset = self.context.i64_type().ptr_type(AddressSpace::Generic).into();
         let ret_len = self.context.i64_type().ptr_type(AddressSpace::Generic).into();
         let msg = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
+        let storage = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
         let fn_type = self.context.void_type()
             .fn_type(
-                &[msg, msg_len, ret_offset, ret_len],
+                &[msg, msg_len, ret_offset, ret_len, storage],
                 false
             );
         let name = "contract";
@@ -404,11 +405,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let name = "sload";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let (value, sp) = self.build_pop(builder, sp);
+                let (key, sp) = self.build_pop(builder, sp);
                 let ret = builder.build_alloca(self.i256_ty, "ret");
                 let ret_char_ptr = builder.build_pointer_cast(ret, self.context.i8_type().ptr_type(AddressSpace::Generic), "retptr");
-                let val_ptr = builder.build_int_to_ptr(value, self.context.i8_type().ptr_type(AddressSpace::Generic), "val_ptr");
-                builder.build_call(self.sload(), &[val_ptr.into(), ret_char_ptr.into()], "sload");
+                let key_ptr = builder.build_alloca(self.i256_ty, "val");
+                builder.build_store(key_ptr, key);
+                let key_ptr = builder.build_pointer_cast(key_ptr, self.context.i8_type().ptr_type(AddressSpace::Generic), "key_ptr_i8");
+                let storage_ptr = self.fun.unwrap().get_nth_param(4).unwrap().into_pointer_value();
+                builder.build_call(self.sload(), &[storage_ptr.into(), key_ptr.into(), ret_char_ptr.into()], "sload");
                 let ret = builder.build_load(ret, "ret");
                 self.build_push(builder, ret, sp);
                 // TODO: pass tos directly as out param
@@ -430,7 +434,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let val_ptr = builder.build_pointer_cast(val_ptr, self.context.i8_type().ptr_type(AddressSpace::Generic), "val_ptr_i8");
                 let key_ptr = builder.build_pointer_cast(key_ptr, self.context.i8_type().ptr_type(AddressSpace::Generic), "key_ptr_i8");
 
-                builder.build_call(self.sstore(), &[key_ptr.into(), val_ptr.into()], "sstore");
+                let storage_ptr = self.fun.unwrap().get_nth_param(4).unwrap().into_pointer_value();
+
+                builder.build_call(self.sstore(), &[storage_ptr.into(), key_ptr.into(), val_ptr.into()], "sstore");
                 //TODO: check return result
             }
             Instruction::Sha3 => {
@@ -981,9 +987,11 @@ mod tests {
             // Instruction::Push(vec![0]),
             // Instruction::Sha3,
 
-            Instruction::Push(vec![1]),
+            Instruction::Push(vec![0x41]),
             Instruction::Push(vec![1]),
             Instruction::SStore,
+            Instruction::Push(vec![1]),
+            Instruction::SLoad,
         ];
         let bytes = crate::evm_opcode::assemble_instructions(instrs);
         let instrs = crate::evm_opcode::Disassembly::from_bytes(&bytes).unwrap().instructions;
