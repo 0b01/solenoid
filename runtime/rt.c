@@ -71,11 +71,18 @@ void cpy(char* a, char* b) {
     }
 }
 
-void sload(char* st, char* key, char* ret) {
+void prt(char* a) {
+    for (int i = 0; i < 32; i++) {
+        printf("%02X", a[i]);
+    }
+}
+
+/* overwrite key */
+void sload(char* st, char* key) {
     // printf("sload called\n");
     for (int i = 0; i < 1024 * 64; i += 64) {
         if (cmp(st + i, key)) {
-            cpy(ret, st+i+32);
+            cpy(key, st+i+32);
             break;
         }
     }

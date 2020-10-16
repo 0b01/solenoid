@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use inkwell::AddressSpace;
-use inkwell::values::{FunctionValue, GlobalValue, BasicValueEnum, IntValue};
+use inkwell::values::{FunctionValue, GlobalValue, BasicValueEnum, IntValue, PointerValue};
 use inkwell::types::{IntType};
 use inkwell::IntPredicate;
 use inkwell::basic_block::BasicBlock;
@@ -190,7 +190,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
-        let fn_ty = self.context.void_type().fn_type(&[char_ptr_ty, char_ptr_ty, char_ptr_ty],false);
+        let fn_ty = self.context.void_type().fn_type(&[char_ptr_ty, char_ptr_ty],false);
         let sload = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
         sload
     }
@@ -383,6 +383,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         sp
     }
 
+    /// return char pointer to tos
+    fn build_tos_ptr(&self, builder: &'a Builder<'ctx>, idx: u64) -> PointerValue<'ctx> {
+        let sp = self.build_sp(builder);
+        let stack = self.stack.unwrap().as_pointer_value();
+        let tos = builder.build_int_sub(sp, self.context.i64_type().const_int(idx, false), "sp_p_1");
+        let key_ptr = unsafe { builder.build_in_bounds_gep(stack, &[self.context.i64_type().const_zero(), tos], "stack") };
+        let key_ptr_i8 = builder.build_pointer_cast(key_ptr, self.context.i8_type().ptr_type(AddressSpace::Generic), "key");
+        key_ptr_i8
+    }
+
     /// Build instruction
     fn build_instr(&self, offset: usize, instr: &Instruction, builder: &'a Builder<'ctx>, is_runtime: bool) -> Option<()> {
         debug!("{:?}", (offset, instr));
@@ -423,39 +433,23 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::SLoad =>  {
                 let name = "sload";
                 self.push_label(name, builder);
-                let sp = self.build_sp(builder);
-                let (key, sp) = self.build_pop(builder, sp);
-                let ret = builder.build_alloca(self.i256_ty, "ret");
-                let ret_char_ptr = builder.build_pointer_cast(ret, self.context.i8_type().ptr_type(AddressSpace::Generic), "retptr");
-                let key_ptr = builder.build_alloca(self.i256_ty, "key");
-                builder.build_store(key_ptr, key);
-                let key_char_ptr = builder.build_pointer_cast(key_ptr, self.context.i8_type().ptr_type(AddressSpace::Generic), "key_ptr_i8");
+                let tos = self.build_tos_ptr(builder, 1);
                 let storage_ptr = self.fun.unwrap().get_nth_param(4).unwrap().into_pointer_value();
-                builder.build_call(self.sload(), &[storage_ptr.into(), key_char_ptr.into(), ret_char_ptr.into()], "sload");
-                let ret = builder.build_load(ret, "ret");
-                self.build_push(builder, ret, sp);
+                builder.build_call(self.sload(), &[storage_ptr.into(), tos.into()], "sload");
                 // TODO: pass tos directly as out param
             }
             Instruction::SStore => {
                 let name = "sstore";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let value = self.build_peek(builder, sp, 2, "value");
-                let key = self.build_peek(builder, sp, 1, "key");
-                self.build_decr(builder, sp, 2);
-
-                let val_ptr = builder.build_alloca(self.i256_ty, "val");
-                let key_ptr = builder.build_alloca(self.i256_ty, "key");
-
-                builder.build_store(val_ptr, value);
-                builder.build_store(key_ptr, key);
-
-                let val_ptr = builder.build_pointer_cast(val_ptr, self.context.i8_type().ptr_type(AddressSpace::Generic), "val_ptr_i8");
-                let key_ptr = builder.build_pointer_cast(key_ptr, self.context.i8_type().ptr_type(AddressSpace::Generic), "key_ptr_i8");
 
                 let storage_ptr = self.fun.unwrap().get_nth_param(4).unwrap().into_pointer_value();
+                let key_ptr_i8 = self.build_tos_ptr(builder, 1);
+                let val_ptr_i8 = self.build_tos_ptr(builder, 2);
 
-                builder.build_call(self.sstore(), &[storage_ptr.into(), key_ptr.into(), val_ptr.into()], "sstore");
+                builder.build_call(self.sstore(), &[storage_ptr.into(), key_ptr_i8.into(), val_ptr_i8.into()], "sstore");
+                self.build_decr(builder, sp, 1);
+
                 //TODO: check return result
             }
             Instruction::Sha3 => {
@@ -521,13 +515,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let ptr = unsafe { builder.build_gep(calldata, &[idx], name)};
                 let ptr = builder.build_pointer_cast(ptr, self.i256_ty.ptr_type(AddressSpace::Generic), "ptr");
                 let value = builder.build_load(ptr, "value");
-
-                let ptr = builder.build_alloca(self.i256_ty, "val");
-                builder.build_store(ptr, value);
-                let ptr_i8 = builder.build_pointer_cast(ptr, self.context.i8_type().ptr_type(AddressSpace::Generic), "ptr_i8");
-                builder.build_call(self.swap_endianness(), &[ptr_i8.into()], "swap_endian");
-                let value = builder.build_load(ptr, "value");
                 self.build_push(builder, value, sp);
+                let ptr_i8 = self.build_tos_ptr(builder, 1);
+                builder.build_call(self.swap_endianness(), &[ptr_i8.into()], "swap_endian");
             }
             Instruction::CallDataSize => {
                 let name = "calldatasize";
@@ -761,25 +751,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.build_push(builder, value, sp);
             }
             Instruction::Exp => {
-                error!("exp implementation is broken!"); //TODO: XXX:
+                error!("exp implementation is broken!"); //TODO: implement this
                 let name = "exp";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let base = self.build_peek(builder, sp, 1, "base");
-                let exp = self.build_peek(builder, sp, 2, "exp");
-                let sp = self.build_decr(builder, sp, 2);
-
-                let ret_ptr = builder.build_alloca(self.i256_ty, "ret");
-
-                let base_ptr = builder.build_alloca(self.i256_ty, "base");
-                builder.build_store(base_ptr, base);
-
-                let exp_ptr = builder.build_alloca(self.i256_ty, "exp");
-                builder.build_store(exp_ptr, exp);
-
-                builder.build_call(self.upow(), &[ret_ptr.into(), base_ptr.into(), exp_ptr.into()], "upow");
-                let value = builder.build_load(ret_ptr, "ret");
-                self.build_push(builder, value, sp);
+                let base_ptr = self.build_tos_ptr(builder, 1);
+                let exp_ptr = self.build_tos_ptr(builder, 2);
+                builder.build_call(self.upow(), &[exp_ptr.into(), base_ptr.into(), exp_ptr.into()], "upow");
+                self.build_decr(builder, sp, 1);
             }
             Instruction::Mod => {
                 let name = "mod";
