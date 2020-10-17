@@ -1,5 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
 #include "utils.h"
 
 extern long sp;
@@ -13,7 +11,6 @@ extern void contract_constructor(
     long* ret_len,
     char* storage
 );
-
 extern void contract_runtime(
     unsigned char* tx,
     long tx_sz,
@@ -21,20 +18,45 @@ extern void contract_runtime(
     long* ret_len,
     char* storage
 );
-
 extern void abi_set(char* tx, int* tx_len, char* x);
-
-char* pad_int(int x) {
-    char* out = malloc(32);
-    out[31] = x & 0xff;
-    out[30] = (x>>8)  & 0xff;
-    out[29] = (x>>16) & 0xff;
-    out[28] = (x>>24) & 0xff;
-    return out;
-}
 
 int occupancy = 1;
 unsigned char storage[1024*64];
+
+/* overwrite key */
+void sload(char* st, char* key) {
+    // printf("sload called\n");
+    for (int i = 0; i < 1024 * 64; i += 64) {
+        if (cmp(st + i, key)) {
+            cpy(key, st+i+32);
+            break;
+        }
+    }
+}
+
+void sstore(char* st, char* key, char* val) {
+    // printf("sstore called\n");
+    if (occupancy == 1024) { return; }
+
+    int found = 0;
+    int loc = occupancy * 64;
+
+    for (int i = 0; i < 1024 * 64; i += 64) {
+        if (cmp(st + i, key)) {
+            found = 1;
+            loc = i;
+            break;
+        }
+    }
+
+    if (!found) {
+        occupancy++;
+        cpy(st + loc, key);
+    }
+    for (int i = 0; i < 32; i++) {
+        cpy(st + loc+32, val);
+    }
+}
 
 void dump_storage() {
     for (int i = 0; i < occupancy * 64; i += 64) {
@@ -80,61 +102,6 @@ void dump_stack(char* label) {
         printf("\n");
     }
     printf("\n");
-}
-
-int cmp(char* a, char* b) {
-    for (int i = 0; i < 32; i++) {
-        if (a[i] != b[i]) return 0;
-    }
-    return 1;
-}
-
-
-void cpy(char* a, char* b) {
-    for (int i = 0; i < 32; i++) {
-        a[i] = b[i];
-    }
-}
-
-void prt(char* a) {
-    for (int i = 0; i < 32; i++) {
-        printf("%02X", a[i]);
-    }
-}
-
-/* overwrite key */
-void sload(char* st, char* key) {
-    // printf("sload called\n");
-    for (int i = 0; i < 1024 * 64; i += 64) {
-        if (cmp(st + i, key)) {
-            cpy(key, st+i+32);
-            break;
-        }
-    }
-}
-
-void sstore(char* st, char* key, char* val) {
-    // printf("sstore called\n");
-    if (occupancy == 1024) { return; }
-
-    int found = 0;
-    int loc = occupancy * 64;
-
-    for (int i = 0; i < 1024 * 64; i += 64) {
-        if (cmp(st + i, key)) {
-            found = 1;
-            loc = i;
-            break;
-        }
-    }
-
-    if (!found) {
-        occupancy++;
-        cpy(st + loc, key);
-    }
-    for (int i = 0; i < 32; i++) {
-        cpy(st + loc+32, val);
-    }
 }
 
 void swap_endianness(char* i) {
