@@ -31,15 +31,13 @@ struct Contract {
 }
 
 impl Contract {
-    pub fn parse(&self, runtime: bool) -> (Vec<(usize, Instruction)>, Vec<u8>) {
-        let code = if runtime {
-            &self.bin_runtime
-        } else {
-            &self.bin
-        };
-        let bytes: Vec<u8> = (code).from_hex().expect("Invalid Hex String");
-        let opcodes =  Disassembly::from_bytes(&bytes).unwrap().instructions;
-        (opcodes, bytes)
+    pub fn parse(&self) -> (Vec<u8>, Vec<u8>, Vec<(usize, Instruction)>, Vec<(usize, Instruction)>) {
+        let ctor_bytes: Vec<u8> = (self.bin).from_hex().expect("Invalid Hex String");
+        let ctor_opcodes =  Disassembly::from_bytes(&ctor_bytes).unwrap().instructions;
+
+        let rt_bytes: Vec<u8> = (self.bin_runtime).from_hex().expect("Invalid Hex String");
+        let rt_opcodes =  Disassembly::from_bytes(&rt_bytes).unwrap().instructions;
+        (ctor_bytes, rt_bytes, ctor_opcodes, rt_opcodes)
     }
 }
 
@@ -69,18 +67,16 @@ fn main() {
         let name = name.split(":").last().unwrap();
         let builder = context.create_builder();
         let mut compiler = Compiler::new(&context, &module);
+        let (ctor_bytes, rt_bytes, ctor_opcodes, rt_opcodes) = contract.parse();
 
-        let (instrs, payload) = contract.parse(false);
-        let (runtime_instrs, runtime_payload) = contract.parse(true);
-
-        debug!("Constructor instrs: {:#?}", instrs);
-        debug!("Runtime instrs: {:#?}", instrs);
+        debug!("Constructor instrs: {:#?}", ctor_opcodes);
+        debug!("Runtime instrs: {:#?}", rt_opcodes);
 
         info!("Compiling {} constructor", name);
-        compiler.compile(&builder, &instrs, &payload, name, false);
+        compiler.compile(&builder, &ctor_opcodes, &ctor_bytes, name, false);
 
         info!("Compiling {} runtime", name);
-        compiler.compile(&builder, &runtime_instrs, &runtime_payload, name, true);
+        compiler.compile(&builder, &rt_opcodes, &rt_bytes, name, true);
 
         compiler.compile_abi(&builder, &contract.abi);
     }
