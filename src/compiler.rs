@@ -1,4 +1,4 @@
-use crate::evm_opcode::Instruction;
+use crate::evm::Instruction;
 
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -1109,8 +1109,8 @@ mod tests {
             Instruction::Push(vec![1]),
             Instruction::SLoad,
         ];
-        let bytes = crate::evm_opcode::assemble_instructions(instrs);
-        let instrs = crate::evm_opcode::Disassembly::from_bytes(&bytes).unwrap().instructions;
+        let bytes = crate::evm::assemble_instructions(instrs);
+        let instrs = crate::evm::Disassembly::from_bytes(&bytes).unwrap().instructions;
 
         let mut compiler = Compiler::new(&context, &module);
         compiler.compile(&builder, &instrs, &bytes, "test", false);

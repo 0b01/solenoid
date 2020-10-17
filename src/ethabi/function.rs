@@ -52,6 +52,7 @@ impl Function {
 		Ok(signed.into_iter().chain(encoded.into_iter()).collect())
 	}
 
+	/// Returns a 4-byte ABI signature
 	pub fn short_signature(&self) -> Vec<u8> {
 		let params = self.input_param_types();
 		short_signature(&self.name, &params).to_vec()

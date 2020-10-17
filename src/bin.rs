@@ -1,5 +1,5 @@
 use inkwell::context::Context;
-use libsolenoid::evm_opcode::{Disassembly, Instruction};
+use libsolenoid::evm::{Disassembly, Instruction};
 use libsolenoid::compiler::Compiler;
 use std::process::Command;
 use uint::rustc_hex::FromHex;
