@@ -1,8 +1,8 @@
 #! /bin/bash
 
-LLVM_SYS_80_PREFIX=/home/g/Desktop/llvm/build LLVM_SYS_80_STRICT_VERSIONING=true cargo build
-RUST_LOG=warn ./target/debug/solenoid tests/contracts/set.sol
-# cargo test
+# LLVM_SYS_80_PREFIX=/home/g/Desktop/llvm/build LLVM_SYS_80_STRICT_VERSIONING=true cargo build
+# RUST_LOG=warn ./target/debug/solenoid tests/contracts/flipper.sol
+LLVM_SYS_80_PREFIX=/home/g/Desktop/llvm/build LLVM_SYS_80_STRICT_VERSIONING=true cargo test
 
 /home/g/Desktop/llvm/build/bin/opt out.ll --O3 -S -o opt.ll
 /home/g/Desktop/llvm/build/bin/llc opt.ll -march=bpf -o out.bpf.s -O3
