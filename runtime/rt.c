@@ -148,21 +148,19 @@ int main() {
     printf("return offset: %ld\nreturn length: %ld\n", offset, length);
     printf("storage occupancy: %d\n", occupancy);
     dump_storage();
+    offset = 0; length = 0;
 
 
     unsigned char tx[1024] = {0};
     int sz = 0;
     abi_set((char*)tx, &sz, pad_int(1));
     printf("%d\n", sz);
-    prt(tx);
 
-    contract_runtime(tx, sz, &offset, &length, (char*)storage);
-    printf("return offset: %ld\nreturn length: %ld\n", offset, length);
-    printf("storage occupancy: %d\n", occupancy);
-    dump_storage();
-
-    contract_runtime((char*)tx, sz, &offset, &length, (char*)storage);
-    printf("return offset: %ld\nreturn length: %ld\n", offset, length);
-    printf("storage occupancy: %d\n", occupancy);
-    dump_storage();
+    for (int i = 0; i < 10; i++) {
+        contract_runtime(tx, sz, &offset, &length, (char*)storage);
+        printf("return offset: %ld\nreturn length: %ld\n", offset, length);
+        printf("storage occupancy: %d\n", occupancy);
+        dump_storage();
+        offset = 0; length = 0;
+    }
 }
