@@ -17,8 +17,6 @@ use crate::ethabi::{Function, Contract, param_type::ParamType::*};
 
 use log::{info, warn, error, debug};
 
-const DEBUG: bool = true;
-
 fn nibble2i256(vals: &[u8]) -> Vec<u64> {
     let mut ret = vec![];
     let mut vals = vals.to_vec();
@@ -51,6 +49,7 @@ pub struct Compiler<'a, 'ctx> {
     errbb: Option<BasicBlock<'ctx>>,
 
     jumpdests: BTreeMap<usize, BasicBlock<'ctx>>,
+    debug: bool,
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
@@ -96,7 +95,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             param_types.push(ty);
         }
 
-        let fun_name = format!("abi_{}", fun.name);
+        let fun_name = format!("abi_{}_{}", fun.name, idx);
         let fn_ty = self.context.void_type().fn_type(param_types.as_slice(),false);
         let llvm_fun = self.module.add_function(&fun_name, fn_ty, None);
         let basic_block = self.context.append_basic_block(llvm_fun, "entry");
@@ -163,6 +162,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     pub fn new(
         context: &'ctx Context,
         module: &'a Module<'ctx>,
+        debug: bool,
     ) -> Self {
         let compiler = Self {
             context,
@@ -178,6 +178,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             jumpbb: None,
             errbb: None,
             label_stack: Rc::new(RefCell::new(Vec::new())),
+            debug,
         };
         compiler
     }
@@ -407,16 +408,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
     /// Function call to dump_stack
     fn build_dump_stack(&self, builder: &'a Builder<'ctx>) {
-        if DEBUG {
-            let s = self.label_stack.borrow_mut();
-            let lbl_name = s.join("_");
-            let s = unsafe {
-                builder.build_global_string(&lbl_name, "str")
-                    .as_pointer_value()
-                    .const_cast(
-                        self.context.i8_type().ptr_type(AddressSpace::Generic)) };
-            builder.build_call(self.dump_stack(), &[s.into()], "dump");
+        if !self.debug {
+            return;
         }
+        let s = self.label_stack.borrow_mut();
+        let lbl_name = s.join("_");
+        let s = unsafe {
+            builder.build_global_string(&lbl_name, "str")
+                .as_pointer_value()
+                .const_cast(
+                    self.context.i8_type().ptr_type(AddressSpace::Generic)) };
+        builder.build_call(self.dump_stack(), &[s.into()], "dump");
     }
 
     fn build_sp(&self, builder: &'a Builder<'ctx>) -> IntValue<'ctx> {
@@ -1059,7 +1061,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.build_push(builder, value, sp);
             }
         };
-        // self.build_dump_stack(builder);
+        self.build_dump_stack(builder);
         self.pop_label();
         Some(())
     }

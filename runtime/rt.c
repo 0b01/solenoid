@@ -18,7 +18,7 @@ extern void contract_runtime(
     long* ret_len,
     char* storage
 );
-extern void abi_set(char* tx, int* tx_len, char* x);
+extern void abi_set_0(char* tx, int* tx_len, char* x);
 
 int occupancy = 1;
 unsigned char storage[1024*64];
@@ -121,7 +121,7 @@ int main() {
     unsigned char tx[1024] = {0};
     int sz = 0;
     unsigned char num[32] = {0};
-    abi_set((char*)tx, &sz, pad_int((char*)num, 1));
+    abi_set_0((char*)tx, &sz, pad_int((char*)num, 1));
     printf("%d\n", sz);
 
     for (int i = 0; i < 10; i++) {

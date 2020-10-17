@@ -66,7 +66,7 @@ fn main() {
     for (name, contract) in &contracts.contracts {
         let name = name.split(":").last().unwrap();
         let builder = context.create_builder();
-        let mut compiler = Compiler::new(&context, &module);
+        let mut compiler = Compiler::new(&context, &module, opt.debug);
         let (ctor_bytes, rt_bytes, ctor_opcodes, rt_opcodes) = contract.parse();
 
         debug!("Constructor instrs: {:#?}", ctor_opcodes);
