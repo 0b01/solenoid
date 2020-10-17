@@ -1,12 +1,37 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include "utils.h"
 
 extern long sp;
 extern long pc;
 extern unsigned char stack[];
 extern unsigned char mem[];
-extern void contract_constructor(char*, long, long*, long*, char*);
-extern void contract_runtime(char*, long, long*, long*, char*);
+extern void contract_constructor(
+    unsigned char* tx,
+    long tx_sz,
+    long* ret_offset,
+    long* ret_len,
+    char* storage
+);
+
+extern void contract_runtime(
+    unsigned char* tx,
+    long tx_sz,
+    long* ret_offset,
+    long* ret_len,
+    char* storage
+);
+
+extern void abi_set(char* tx, int* tx_len, char* x);
+
+char* pad_int(int x) {
+    char* out = malloc(32);
+    out[31] = x & 0xff;
+    out[30] = (x>>8)  & 0xff;
+    out[29] = (x>>16) & 0xff;
+    out[28] = (x>>24) & 0xff;
+    return out;
+}
 
 int occupancy = 1;
 unsigned char storage[1024*64];
@@ -124,13 +149,19 @@ int main() {
     printf("storage occupancy: %d\n", occupancy);
     dump_storage();
 
-    unsigned char tx[36] = {0x60, 0xfe, 0x47, 0xb1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a};
-    contract_runtime((char*)tx, sizeof(tx), &offset, &length, (char*)storage);
+
+    unsigned char tx[1024] = {0};
+    int sz = 0;
+    abi_set((char*)tx, &sz, pad_int(1));
+    printf("%d\n", sz);
+    prt(tx);
+
+    contract_runtime(tx, sz, &offset, &length, (char*)storage);
     printf("return offset: %ld\nreturn length: %ld\n", offset, length);
     printf("storage occupancy: %d\n", occupancy);
     dump_storage();
 
-    contract_runtime((char*)tx, sizeof(tx), &offset, &length, (char*)storage);
+    contract_runtime((char*)tx, sz, &offset, &length, (char*)storage);
     printf("return offset: %ld\nreturn length: %ld\n", offset, length);
     printf("storage occupancy: %d\n", occupancy);
     dump_storage();

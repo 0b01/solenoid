@@ -1,7 +1,7 @@
 #! /bin/bash
 
 LLVM_SYS_80_PREFIX=/home/g/Desktop/llvm/build LLVM_SYS_80_STRICT_VERSIONING=true cargo build
-RUST_LOG=debug ./target/debug/solenoid tests/contracts/set.sol
+RUST_LOG=warn ./target/debug/solenoid tests/contracts/set.sol
 # cargo test
 
 /home/g/Desktop/llvm/build/bin/opt out.ll --O3 -S -o opt.ll

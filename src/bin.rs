@@ -2,7 +2,7 @@ use inkwell::context::Context;
 use libsolenoid::evm_opcode::{Disassembly, Instruction};
 use libsolenoid::compiler::Compiler;
 use std::process::Command;
-use hex::FromHex;
+use uint::rustc_hex::FromHex;
 use structopt::StructOpt;
 use std::path::PathBuf;
 use serde_json;
@@ -37,7 +37,7 @@ impl Contract {
         } else {
             &self.bin
         };
-        let bytes: Vec<u8> = Vec::from_hex(code).expect("Invalid Hex String");
+        let bytes: Vec<u8> = (code).from_hex().expect("Invalid Hex String");
         let opcodes =  Disassembly::from_bytes(&bytes).unwrap().instructions;
         (opcodes, bytes)
     }
@@ -63,7 +63,6 @@ fn main() {
 
     let contracts: Contracts = serde_json::from_str(&json).unwrap();
 
-
     let context = Context::create();
     let module = context.create_module("contracts");
     for (name, contract) in &contracts.contracts {
@@ -82,6 +81,8 @@ fn main() {
 
         info!("Compiling {} runtime", name);
         compiler.compile(&builder, &runtime_instrs, &runtime_payload, name, true);
+
+        compiler.compile_abi(&builder, &contract.abi);
     }
     module.print_to_file("out.ll").unwrap();
 }

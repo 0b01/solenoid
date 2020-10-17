@@ -15,7 +15,7 @@
 pub mod error;
 pub mod instructions;
 
-use hex::FromHex;
+use uint::rustc_hex::FromHex;
 use std::io::Cursor;
 
 use instructions::{assemble_instruction, disassemble_next_byte};
@@ -56,7 +56,7 @@ fn disassemble_hex_str(input: &str) -> Result<Vec<InstrTy>, DisassemblyError> {
     } else {
         input
     };
-    let bytes = Vec::from_hex(input)?;
+    let bytes = (input).from_hex::<Vec<_>>()?;
     disassemble_bytes(&bytes)
 }
 

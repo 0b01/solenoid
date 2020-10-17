@@ -6,12 +6,14 @@ use std::collections::BTreeMap;
 
 use inkwell::AddressSpace;
 use inkwell::values::{FunctionValue, GlobalValue, BasicValueEnum, IntValue, PointerValue};
-use inkwell::types::{IntType};
+use inkwell::types::{IntType, BasicTypeEnum};
 use inkwell::IntPredicate;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
+
+use crate::ethabi::{Function, Contract, param_type::ParamType::*};
 
 use log::{info, warn, error, debug};
 
@@ -49,6 +51,111 @@ pub struct Compiler<'a, 'ctx> {
     errbb: Option<BasicBlock<'ctx>>,
 
     jumpdests: BTreeMap<usize, BasicBlock<'ctx>>,
+}
+
+impl<'a, 'ctx> Compiler<'a, 'ctx> {
+    pub fn compile_abi(&self, builder: &'a Builder<'ctx>, abi: &str) {
+        let contract = Contract::load(abi.as_bytes()).unwrap();
+        for (_name, funs) in &contract.functions {
+            for (idx, fun) in funs.iter().enumerate() {
+                self.compile_abi_function(builder, fun, idx);
+            }
+        }
+    }
+
+    /// void get(char* out_buf, int* buf_length, params..)
+    fn compile_abi_function(&self, builder: &'a Builder<'ctx>, fun: &Function, idx: usize) {
+        let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
+        let buf_len_ty = self.context.i32_type().ptr_type(AddressSpace::Generic).into();
+        let mut param_types: Vec<BasicTypeEnum<'ctx>> = vec![char_ptr_ty, buf_len_ty];
+
+        for param in &fun.inputs {
+            let ty = match param.kind {
+                Address => char_ptr_ty,
+                Bytes => unimplemented!(),
+
+                Int(8) => self.context.i8_type().into(),
+                Int(16) => self.context.i16_type().into(),
+                Int(32) => self.context.i32_type().into(),
+                Int(64) => self.context.i64_type().into(),
+                Int(_) => char_ptr_ty,
+
+                Uint(8) => self.context.i8_type().into(),
+                Uint(16) => self.context.i16_type().into(),
+                Uint(32) => self.context.i32_type().into(),
+                Uint(64) => self.context.i64_type().into(),
+                Uint(_) => char_ptr_ty,
+
+                Bool => self.context.i32_type().into(),
+                String => char_ptr_ty,
+                Array(_) => char_ptr_ty,
+                FixedBytes(_) => char_ptr_ty,
+                FixedArray(_, _) => char_ptr_ty,
+                Tuple(_) => char_ptr_ty,
+            };
+            param_types.push(ty);
+        }
+
+        let fun_name = format!("abi_{}", fun.name);
+        let fn_ty = self.context.void_type().fn_type(param_types.as_slice(),false);
+        let llvm_fun = self.module.add_function(&fun_name, fn_ty, None);
+        let basic_block = self.context.append_basic_block(llvm_fun, "entry");
+
+        builder.position_at_end(basic_block);
+        self.build_abi_conversion(builder, fun, llvm_fun);
+        builder.build_return(None);
+    }
+
+    fn build_abi_conversion(&self, builder: &'a Builder<'ctx>, fun: &Function, llvm_fun: FunctionValue<'ctx>) {
+        let buf = llvm_fun.get_nth_param(0).unwrap().into_pointer_value();
+        let len_ptr = llvm_fun.get_nth_param(1).unwrap().into_pointer_value();
+        let mut len  = builder.build_load(len_ptr, "len").into_int_value();
+
+        // encode abi signature
+        let sig = fun.short_signature();
+        let sig_glb = self.module.add_global(
+            self.context.i8_type().array_type(sig.len() as u32),
+            Some(AddressSpace::Generic),
+            &format!("{}_sig", fun.name));
+        let sig_buf = self.context.const_string(&sig, false);
+        sig_glb.set_initializer(&sig_buf);
+        builder.build_memcpy(buf, 1, sig_glb.as_pointer_value(), 1, self.context.i32_type().const_int(sig.len() as u64, false)).unwrap();
+        len = builder.build_int_add(len, self.context.i32_type().const_int(4, false), "len");
+
+        for (idx, param) in fun.inputs.iter().enumerate() {
+            let x = llvm_fun.get_nth_param(idx as u32 + 2).unwrap();
+            match &param.kind {
+                Uint(8) | Uint(16) | Uint(32) | Uint(64) => {
+                    let x = x.into_int_value();
+                    let value = builder.build_int_z_extend(x, self.i256_ty, &param.name);
+                    let ptr = unsafe { builder.build_gep(buf, &[len], "ptr") };
+                    builder.build_store(ptr, value);
+                    len = builder.build_int_add(len, self.context.i32_type().const_int(32, false), "len");
+                },
+                Uint(bits) => {
+                    let x = x.into_pointer_value();
+                    let val_ptr = builder.build_pointer_cast(x, self.context.custom_width_int_type(*bits as u32).ptr_type(AddressSpace::Generic), "ptr");
+                    let value = builder.build_load(val_ptr, "value").into_int_value();
+                    let ptr = unsafe { builder.build_gep(buf, &[len], "ptr") };
+                    let value = builder.build_int_z_extend(value, self.i256_ty, &param.name);
+                    let ptr = builder.build_pointer_cast(ptr, self.i256_ty.ptr_type(AddressSpace::Generic), "ptr");
+                    builder.build_store(ptr, value);
+                    len = builder.build_int_add(len, self.context.i32_type().const_int(32, false), "len");
+                }
+                Address => {}
+                Bytes => {}
+                Int(_) => {}
+                Bool => {}
+                String => {}
+                Array(_) => {}
+                FixedBytes(_) => {}
+                FixedArray(_, _) => {}
+                Tuple(_) => {}
+            }
+        }
+
+        builder.build_store(len_ptr, len);
+    }
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
@@ -146,7 +253,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         // upow
-        let ty = self.i256_ty.ptr_type(AddressSpace::Generic).into();
+        let ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
         let fn_ty = self.context.void_type().fn_type(&[ty, ty, ty], false);
         let upow = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
         upow
@@ -399,7 +506,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         builder.build_store(self.pc.unwrap().as_pointer_value(), self.context.i64_type().const_int(offset as u64, false));
         match instr {
-            Instruction::SignExtend |
             Instruction::Addr |
             Instruction::Balance |
             Instruction::Origin |
@@ -429,6 +535,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::Create2 |
             Instruction::StaticCall => {
                 error!("unimpl: {:?}", instr);
+            }
+            Instruction::SignExtend => {
+                let name = "signextend";
+                self.push_label(name, builder);
+                // TODO:
+                // build a switch then use sext .. to ..
             }
             Instruction::SLoad =>  {
                 let name = "sload";
