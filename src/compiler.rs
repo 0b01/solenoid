@@ -124,14 +124,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         for (idx, param) in fun.inputs.iter().enumerate() {
             let x = llvm_fun.get_nth_param(idx as u32 + 2).unwrap();
             match &param.kind {
-                Uint(8) | Uint(16) | Uint(32) | Uint(64) => {
+                Uint(8) | Uint(16) | Uint(32) | Uint(64) |
+                Int(8) | Int(16) | Int(32) | Int(64) | Bool => {
                     let x = x.into_int_value();
                     let value = builder.build_int_z_extend(x, self.i256_ty, &param.name);
                     let ptr = unsafe { builder.build_gep(buf, &[len], "ptr") };
                     builder.build_store(ptr, value);
                     len = builder.build_int_add(len, self.i32(32), "len");
                 },
-                Uint(bits) => {
+                Uint(bits) | Int(bits) => {
                     let x = x.into_pointer_value();
                     let val_ptr = builder.build_pointer_cast(x, self.context.custom_width_int_type(*bits as u32).ptr_type(AddressSpace::Generic), "ptr");
                     let value = builder.build_load(val_ptr, "value").into_int_value();
@@ -141,15 +142,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     builder.build_store(ptr, value);
                     len = builder.build_int_add(len, self.i32(32), "len");
                 }
-                Address => {}
-                Bytes => {}
-                Int(_) => {}
-                Bool => {}
-                String => {}
-                Array(_) => {}
-                FixedBytes(_) => {}
-                FixedArray(_, _) => {}
-                Tuple(_) => {}
+                _ => unimplemented!(),
             }
         }
 
