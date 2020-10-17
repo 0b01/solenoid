@@ -129,7 +129,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let value = builder.build_int_z_extend(x, self.i256_ty, &param.name);
                     let ptr = unsafe { builder.build_gep(buf, &[len], "ptr") };
                     builder.build_store(ptr, value);
-                    len = builder.build_int_add(len, self.i32(2), "len");
+                    len = builder.build_int_add(len, self.i32(32), "len");
                 },
                 Uint(bits) => {
                     let x = x.into_pointer_value();
@@ -139,7 +139,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let value = builder.build_int_z_extend(value, self.i256_ty, &param.name);
                     let ptr = builder.build_pointer_cast(ptr, self.i256_ty.ptr_type(AddressSpace::Generic), "ptr");
                     builder.build_store(ptr, value);
-                    len = builder.build_int_add(len, self.i32(2), "len");
+                    len = builder.build_int_add(len, self.i32(32), "len");
                 }
                 Address => {}
                 Bytes => {}
@@ -806,6 +806,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             Instruction::CallValue => {
                 // TODO:
+                warn!("callvalue is unimpl");
                 let name = "callvalue";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
