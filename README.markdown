@@ -5,3 +5,10 @@ Solenoid compiler uses LLVM to translate Ethereum contracts to Solana's BPF back
 1. contract constructor
 2. contract runtime
 2. abi conversion functions
+
+## How to run
+
+```
+cargo install
+./test.sh
+```

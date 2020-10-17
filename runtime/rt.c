@@ -120,7 +120,8 @@ int main() {
 
     unsigned char tx[1024] = {0};
     int sz = 0;
-    abi_set((char*)tx, &sz, pad_int(1));
+    unsigned char num[32] = {0};
+    abi_set((char*)tx, &sz, pad_int((char*)num, 1));
     printf("%d\n", sz);
 
     for (int i = 0; i < 10; i++) {
