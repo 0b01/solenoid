@@ -71,7 +71,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         for param in &fun.inputs {
             let ty = match param.kind {
                 Address => char_ptr_ty,
-                Bytes => unimplemented!(),
+                Bytes => char_ptr_ty,
 
                 Int(8) => self.context.i8_type().into(),
                 Int(16) => self.context.i16_type().into(),
@@ -142,7 +142,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     builder.build_store(ptr, value);
                     len = builder.build_int_add(len, self.i32(32), "len");
                 }
-                _ => unimplemented!(),
+                _ => {
+                    error!("unimpl");
+                }
             }
         }
 
@@ -557,15 +559,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let b = self.build_peek(builder, sp, 1, "b");
                 let sp = self.build_decr(builder, sp, 2);
 
+                let end = self.context.insert_basic_block_after(builder.get_insert_block().unwrap(), &format!("sext_end"));
+
                 let mut cases = vec![];
                 for i in 1..32 {
                     let bb = self.context.insert_basic_block_after(builder.get_insert_block().unwrap(), &format!("sext_{}", i));
-                    let x = builder.build_int_truncate(x, self.context.custom_width_int_type(i as u32*8), "val");
-                    let value = builder.build_int_s_extend(x, self.i256_ty, "sext");
-                    self.build_push(builder, value.into(), sp);
                     cases.push((self.i256(i), bb));
                 }
                 builder.build_switch(b, self.errbb.unwrap(), &cases);
+                for (i, (_, bb)) in cases.iter().enumerate() {
+                    builder.position_at_end(*bb);
+                    let x = builder.build_int_truncate(x, self.context.custom_width_int_type((i+1) as u32*8), "val");
+                    let value = builder.build_int_s_extend(x, self.i256_ty, "sext");
+                    self.build_push(builder, value.into(), sp);
+                    builder.build_unconditional_branch(end);
+                }
+                builder.position_at_end(end);
                 // TODO:
                 // build a switch then use sext .. to ..
             }
@@ -1097,57 +1106,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 mod tests {
     use super::*;
 
-
-    #[test]
-    fn codegen() {
-        let context = Context::create();
-        let module = context.create_module("contract");
-        let builder = context.create_builder();
-
-        let instrs = vec![
-            // Instruction::Push(vec![0x80]),
-            // Instruction::Push(vec![0x40]),
-            // Instruction::MStore,
-            // Instruction::CallValue,
-            // Instruction::Dup(1),
-            // Instruction::IsZero,
-            // Instruction::Push(vec![0x00, 0x10]),
-            // Instruction::JumpIf,
-            // Instruction::Push(vec![0]),
-            // Instruction::Dup(1),
-            // Instruction::Revert,
-            // Instruction::JumpDest,
-            // Instruction::Pop,
-
-            // Instruction::Push(vec![0x2]),
-            // Instruction::Push(vec![0x3]),
-            // Instruction::Exp,
-
-            // Instruction::Push(vec![0x74, 0x65, 0x73, 0x74]),
-            // Instruction::Push(vec![0]),
-            // Instruction::MStore,
-            // Instruction::Push(vec![4]),
-            // Instruction::Push(vec![0]),
-            // Instruction::Sha3,
-
-            // Instruction::Push(vec![0x41]),
-            // Instruction::Push(vec![1]),
-            // Instruction::SStore,
-            // Instruction::Push(vec![1]),
-            // Instruction::SLoad,
-
-            Instruction::Push(vec![228]),
-            Instruction::Push(vec![1]),
-            Instruction::SignExtend,
-        ];
-        let bytes = crate::evm::assemble_instructions(instrs);
-        let instrs = crate::evm::Disassembly::from_bytes(&bytes).unwrap().instructions;
-
-        let mut compiler = Compiler::new(&context, &module, false);
-        compiler.compile(&builder, &instrs, &bytes, "test", false);
-        // compiler.dbg();
-        module.print_to_file("out.ll").unwrap();
-    }
 
     #[test]
     fn test_nibbles2i256() {

@@ -55,6 +55,7 @@ fn main() {
             .arg(opt.input)
             .arg("--combined-json")
             .arg("bin,bin-runtime,abi")
+            .arg("--allow-paths=/")
             .output()
             .expect("solc command failed to start");
     let json = String::from_utf8_lossy(&cmd.stdout);
