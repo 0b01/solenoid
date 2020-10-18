@@ -13,6 +13,10 @@ use log::{info, debug};
 #[derive(Debug, StructOpt)]
 #[structopt(name = "solenoid", about = "solenoid compiler toolchain")]
 struct Opt {
+    /// print opcodes then exit
+    #[structopt(short, long)]
+    print_opcodes: bool,
+
     /// debug
     #[structopt(short, long)]
     debug: bool,
@@ -73,6 +77,10 @@ fn main() {
         debug!("Constructor instrs: {:#?}", ctor_opcodes);
         debug!("Runtime instrs: {:#?}", rt_opcodes);
 
+        if opt.print_opcodes {
+            continue;
+        }
+
         info!("Compiling {} constructor", name);
         compiler.compile(&builder, &ctor_opcodes, &ctor_bytes, name, false);
 
@@ -81,5 +89,8 @@ fn main() {
 
         compiler.compile_abi(&builder, &contract.abi);
     }
+        if opt.print_opcodes {
+            return;
+        }
     module.print_to_file("out.ll").unwrap();
 }

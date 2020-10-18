@@ -129,6 +129,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     let x = x.into_int_value();
                     let value = builder.build_int_z_extend(x, self.i256_ty, &param.name);
                     let ptr = unsafe { builder.build_gep(buf, &[len], "ptr") };
+                    let ptr = builder.build_pointer_cast(ptr, self.i256_ty.ptr_type(AddressSpace::Generic), "ptr");
                     builder.build_store(ptr, value);
                     len = builder.build_int_add(len, self.i32(32), "len");
                 },
@@ -202,10 +203,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // jump table
         self.jumpbb = Some(self.context.append_basic_block(self.fun.unwrap(), "jumpbb"));
         let mainbb = self.context.append_basic_block(self.fun.unwrap(), "main");
-        for (offset, _dest) in instrs.iter()
-            .take_while(|(_, i)| *i != Instruction::Invalid)
-            .filter(|(_,i)|*i==Instruction::JumpDest)
-        {
+        let jumpdests = instrs.iter()
+            // .take_while(|(_, i)| *i != Instruction::Invalid)
+            .filter(|(_,i)|*i==Instruction::JumpDest);
+        self.jumpdests.clear();
+        for (offset, _i) in jumpdests {
             let jumpdestbb = self.context.append_basic_block(self.fun.unwrap(), "jumpdest");
             self.jumpdests.insert(*offset, jumpdestbb);
         }
@@ -363,7 +365,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.code = Some(code);
     }
 
-    pub fn build_function(&mut self, _name: &str, is_runtime: bool) {
+    pub fn build_function(&mut self, name: &str, is_runtime: bool) {
         let msg_len = self.context.i64_type().into();
         let ret_offset = self.context.i64_type().ptr_type(AddressSpace::Generic).into();
         let ret_len = self.context.i64_type().ptr_type(AddressSpace::Generic).into();
@@ -374,7 +376,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 &[msg, msg_len, ret_offset, ret_len, storage],
                 false
             );
-        let name = "contract";
+        // let name = "contract";
         let fn_name = format!("{}_{}", name, if is_runtime {"runtime"} else {"constructor"});
         let function = self.module.add_function(&fn_name, fn_type, None);
         self.fun = Some(function);
@@ -681,13 +683,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 builder.build_unconditional_branch(self.errbb.unwrap());
                 self.pop_label();
 
-                if is_runtime {
-                    warn!("Invalid instruction encountered. Continuing compilation!");
-                    return Some(())
-                } else {
-                    warn!("Invalid instruction encountered. Halting compilation!");
-                    return None;
-                }
+                warn!("Invalid instruction encountered. Continuing compilation!");
+                return Some(());
             }
             Instruction::Return => {
                 let name = "return";
@@ -838,7 +835,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 let mem = self.mem.unwrap().as_pointer_value();
                 let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.context.i64_type().const_zero(), offset], "stack") };
-                let addr = builder.build_pointer_cast(addr, self.i256_ty.ptr_type(AddressSpace::Generic), "addr");
                 builder.build_store(addr, value);
             }
             Instruction::MStore => {

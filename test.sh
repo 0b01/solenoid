@@ -1,13 +1,14 @@
 #! /bin/bash
 export LLVM_SYS_80_PREFIX=/home/g/Desktop/llvm/build
 export LLVM_SYS_80_STRICT_VERSIONING=true
-export RUST_LOG=warn
+export RUST_LOG=debug
 
 # FILE=/home/g/Desktop/chainlink/evm-contracts/src/v0.7/dev/Owned.sol
-FILE=tests/contracts/set.sol
+FILE=/home/g/Desktop/chainlink/evm-contracts/src/v0.7/dev/Operator.sol
+# FILE=tests/contracts/set.sol
+cargo run $FILE
 
-# cargo run $FILE
-cargo run --example codegen
+# cargo run --example codegen
 
 opt out.ll --O3 -S -o opt.ll
 llc out.ll -march=bpf -o out.bpf.s -O3

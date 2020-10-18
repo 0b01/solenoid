@@ -45,7 +45,7 @@ fn main() {
 
         Instruction::Push(vec![10]),
         Instruction::Push(vec![10]),
-        Instruction::Xor,
+        Instruction::Div,
     ];
     let bytes = evm::assemble_instructions(instrs);
     let instrs = evm::Disassembly::from_bytes(&bytes).unwrap().instructions;
