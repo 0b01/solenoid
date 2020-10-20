@@ -24,10 +24,10 @@ struct Opt {
     #[structopt(short, long)]
     input: Option<PathBuf>,
 
-    /// Output LLVM IR file 
+    /// Output directory
     #[structopt(parse(from_os_str))]
     #[structopt(short, long)]
-    output: Option<PathBuf>,
+    output_dir: Option<PathBuf>,
 
     /// Compile raw hex-encoded opcodes
     #[structopt(long)]
@@ -38,7 +38,7 @@ fn main() {
     env_logger::init();
 
     let opt = Opt::from_args();
-    let ll_output = opt.output.unwrap_or(PathBuf::from("out.ll"));
+    let outdir = opt.output_dir.unwrap_or(PathBuf::from("out/"));
     let context = Context::create();
     let module = context.create_module("contracts");
     let builder = context.create_builder();
@@ -51,7 +51,7 @@ fn main() {
         let mut compiler = Compiler::new(&context, &module, false);
         compiler.compile(&builder, &instrs, &bytes, "test", false);
         // compiler.dbg();
-        module.print_to_file(ll_output).unwrap();
+        module.print_to_file("out.ll").unwrap();
     } else if let Some(input) = &opt.input {
         let contracts = solc::solc_compile(input);
         for (name, contract) in &contracts {
@@ -82,9 +82,8 @@ fn main() {
             return;
         }
 
-        module.print_to_file(ll_output).unwrap();
-        cffigen.generate("out/");
+        cffigen.generate(&outdir, &module.print_to_string().to_string());
     } else {
-        error!("Nothing to do. Use solenoid --help to see usage.");
+        error!("Nothing to do. Use --help to show instructions.");
     }
 }

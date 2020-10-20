@@ -7,7 +7,7 @@ export RUST_LOG=warn
 # FILE=/home/g/Desktop/chainlink/evm-contracts/src/v0.7/dev/Owned.sol
 # FILE=/home/g/Desktop/chainlink/evm-contracts/src/v0.7/dev/Operator.sol
 FILE=tests/contracts/set.sol
-cargo run $FILE
+cargo run -- --input $FILE
 
 # cargo run --example codegen
 
