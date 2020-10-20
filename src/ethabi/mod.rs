@@ -28,9 +28,6 @@ pub mod token;
 mod tuple_param;
 mod util;
 
-#[cfg(test)]
-mod tests;
-
 pub use crate::ethabi::{
 	constructor::Constructor,
 	contract::{Contract, Events, Functions},

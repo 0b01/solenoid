@@ -6,28 +6,31 @@ use structopt::StructOpt;
 use std::path::PathBuf;
 use uint::rustc_hex::FromHex;
 use libsolenoid::evm::Disassembly;
-use log::{info, debug};
+use log::{info, debug, error};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "solenoid", about = "solenoid compiler toolchain")]
 struct Opt {
-    /// print opcodes then exit
+    /// Print opcodes then exit
     #[structopt(short, long)]
     print_opcodes: bool,
 
-    /// debug
+    /// Debug
     #[structopt(short, long)]
     debug: bool,
 
     /// Input contract
     #[structopt(parse(from_os_str))]
+    #[structopt(short, long)]
     input: Option<PathBuf>,
 
     /// Output LLVM IR file 
     #[structopt(parse(from_os_str))]
+    #[structopt(short, long)]
     output: Option<PathBuf>,
 
     /// Compile raw hex-encoded opcodes
+    #[structopt(long)]
     opcodes: Option<String>,
 }
 
@@ -81,5 +84,7 @@ fn main() {
 
         module.print_to_file(ll_output).unwrap();
         cffigen.generate("out/");
+    } else {
+        error!("Nothing to do. Use solenoid --help to see usage.");
     }
 }

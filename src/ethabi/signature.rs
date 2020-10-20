@@ -31,15 +31,3 @@ fn fill_signature(name: &str, params: &[ParamType], result: &mut [u8]) {
 	sponge.update(&data);
 	sponge.finalize(result);
 }
-
-#[cfg(test)]
-mod tests {
-	use super::short_signature;
-	use crate::ParamType;
-	use hex_literal::hex;
-
-	#[test]
-	fn test_signature() {
-		assert_eq!(hex!("cdcd77c0"), short_signature("baz", &[ParamType::Uint(32), ParamType::Bool]));
-	}
-}

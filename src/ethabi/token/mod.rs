@@ -166,16 +166,3 @@ pub trait Tokenizer {
 	/// Tries to parse a value as signed integer.
 	fn tokenize_int(value: &str) -> Result<[u8; 32], Error>;
 }
-
-#[cfg(test)]
-mod test {
-	use super::{LenientTokenizer, ParamType, Tokenizer};
-	#[test]
-	fn single_quoted_in_array_must_error() {
-		assert!(LenientTokenizer::tokenize_array("[1,\"0,false]", &ParamType::Bool).is_err());
-		assert!(LenientTokenizer::tokenize_array("[false\"]", &ParamType::Bool).is_err());
-		assert!(LenientTokenizer::tokenize_array("[1,false\"]", &ParamType::Bool).is_err());
-		assert!(LenientTokenizer::tokenize_array("[1,\"0\",false]", &ParamType::Bool).is_err());
-		assert!(LenientTokenizer::tokenize_array("[1,0]", &ParamType::Bool).is_ok());
-	}
-}

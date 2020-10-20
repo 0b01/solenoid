@@ -86,38 +86,3 @@ impl<'a> Visitor<'a> for TupleParamVisitor {
 		Ok(TupleParam { name, kind })
 	}
 }
-
-#[cfg(test)]
-mod tests {
-	use crate::{ParamType, TupleParam};
-	use serde_json;
-
-	#[test]
-	fn tuple_param_deserialization() {
-		let s = r#"[{
-			"name": "foo",
-			"type": "address"
-			},{
-			"name": "bar",
-			"type": "address"
-			},{
-			"name": "baz",
-			"type": "address"
-			},{
-			"type": "bool"
-			}
-		]"#;
-
-		let deserialized: Vec<TupleParam> = serde_json::from_str(s).unwrap();
-
-		assert_eq!(
-			deserialized,
-			vec![
-				TupleParam { name: Some(String::from("foo")), kind: ParamType::Address },
-				TupleParam { name: Some(String::from("bar")), kind: ParamType::Address },
-				TupleParam { name: Some(String::from("baz")), kind: ParamType::Address },
-				TupleParam { name: None, kind: ParamType::Bool },
-			]
-		);
-	}
-}

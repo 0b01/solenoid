@@ -30,26 +30,3 @@ impl Writer {
 		}
 	}
 }
-
-#[cfg(test)]
-mod tests {
-	use super::Writer;
-	use crate::ParamType;
-
-	#[test]
-	fn test_write_param() {
-		assert_eq!(Writer::write(&ParamType::Address), "address".to_owned());
-		assert_eq!(Writer::write(&ParamType::Bytes), "bytes".to_owned());
-		assert_eq!(Writer::write(&ParamType::FixedBytes(32)), "bytes32".to_owned());
-		assert_eq!(Writer::write(&ParamType::Uint(256)), "uint256".to_owned());
-		assert_eq!(Writer::write(&ParamType::Int(64)), "int64".to_owned());
-		assert_eq!(Writer::write(&ParamType::Bool), "bool".to_owned());
-		assert_eq!(Writer::write(&ParamType::String), "string".to_owned());
-		assert_eq!(Writer::write(&ParamType::Array(Box::new(ParamType::Bool))), "bool[]".to_owned());
-		assert_eq!(Writer::write(&ParamType::FixedArray(Box::new(ParamType::String), 2)), "string[2]".to_owned());
-		assert_eq!(
-			Writer::write(&ParamType::FixedArray(Box::new(ParamType::Array(Box::new(ParamType::Bool))), 2)),
-			"bool[][2]".to_owned()
-		);
-	}
-}
