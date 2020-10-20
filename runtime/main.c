@@ -1,5 +1,5 @@
 #include "rt.h"
-#include "contract.h"
+#include "../out/src/contracts.h"
 
 int main() {
     long offset = 0, length = 0;

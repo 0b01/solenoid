@@ -144,10 +144,6 @@ impl CFFIGenerator {
         include!(src:
             "rt.c",
             "rt.h",
-            "sha3.h",
-            "sha3.c",
-            "utils.c",
-            "utils.h",
             "arith.ll",
         );
     }
