@@ -18,6 +18,7 @@
  */
 
 #include "sha3.h"
+#include "utils.h"
 
 //#include <avr/pgmspace.h>
 
@@ -177,7 +178,7 @@ static void sha3_process_block(uint64_t hash[25], const uint64_t *block) {
  * @param msg message chunk
  * @param size length of the message chunk
  */
-void keccak_update(SHA3_CTX *ctx, const unsigned char *msg, uint16_t size)
+void keccak_update(SHA3_CTX *ctx, const i8 *msg, uint16_t size)
 {
     uint16_t idx = (uint16_t)ctx->rest;
 
@@ -222,7 +223,7 @@ void keccak_update(SHA3_CTX *ctx, const unsigned char *msg, uint16_t size)
 * @param ctx the algorithm context containing current hashing state
 * @param result calculated hash in binary form
 */
-void keccak_final(SHA3_CTX *ctx, unsigned char* result)
+void keccak_final(SHA3_CTX *ctx, i8* result)
 {
     uint16_t digest_length = 100 - BLOCK_SIZE / 2;
 
@@ -242,13 +243,13 @@ void keccak_final(SHA3_CTX *ctx, unsigned char* result)
     }
 }
 
-void keccak256(const unsigned char *msg, uint16_t size, unsigned char* result) {
-    inplace_reverse((char*)msg, size);
+void keccak256(const i8 *msg, uint16_t size, i8* result) {
+    inplace_reverse((i8*)msg, size);
 
     SHA3_CTX ctx;
     keccak_init(&ctx);
     keccak_update(&ctx, msg, size);
     keccak_final(&ctx, result);
 
-    inplace_reverse((char*)result, 32);
+    inplace_reverse(result, 32);
 }
