@@ -5,3 +5,6 @@ a.out
 opt.ll
 *.o
 *.bc
+bindings.rs
+contracts.h
+/out

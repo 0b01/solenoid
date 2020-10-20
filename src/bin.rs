@@ -1,13 +1,9 @@
 use inkwell::context::Context;
-use libsolenoid::evm::{Disassembly, Instruction};
 use libsolenoid::compiler::Compiler;
-use std::process::Command;
-use uint::rustc_hex::FromHex;
+use libsolenoid::solc;
+use libsolenoid::cffigen::CFFIGenerator;
 use structopt::StructOpt;
 use std::path::PathBuf;
-use serde_json;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use log::{info, debug};
 
 #[derive(Debug, StructOpt)]
@@ -26,49 +22,17 @@ struct Opt {
     input: PathBuf,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct Contract {
-    abi: String,
-    bin: String,
-    #[serde(rename="bin-runtime")]
-    bin_runtime: String,
-}
-
-impl Contract {
-    pub fn parse(&self) -> (Vec<u8>, Vec<u8>, Vec<(usize, Instruction)>, Vec<(usize, Instruction)>) {
-        let ctor_bytes: Vec<u8> = (self.bin).from_hex().expect("Invalid Hex String");
-        let ctor_opcodes =  Disassembly::from_bytes(&ctor_bytes).unwrap().instructions;
-
-        let rt_bytes: Vec<u8> = (self.bin_runtime).from_hex().expect("Invalid Hex String");
-        let rt_opcodes =  Disassembly::from_bytes(&rt_bytes).unwrap().instructions;
-        (ctor_bytes, rt_bytes, ctor_opcodes, rt_opcodes)
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Contracts {
-    contracts: HashMap<String, Contract>,
-}
-
 fn main() {
     env_logger::init();
 
     let opt = Opt::from_args();
 
-    let cmd = Command::new("solc")
-            .arg(opt.input)
-            .arg("--combined-json")
-            .arg("bin,bin-runtime,abi")
-            .arg("--allow-paths=/")
-            .output()
-            .expect("solc command failed to start");
-    let json = String::from_utf8_lossy(&cmd.stdout);
-
-    let contracts: Contracts = serde_json::from_str(&json).unwrap();
+    let contracts = solc::solc_compile(&opt.input);
 
     let context = Context::create();
     let module = context.create_module("contracts");
-    for (name, contract) in &contracts.contracts {
+    let mut cffigen = CFFIGenerator::new();
+    for (name, contract) in &contracts {
         let name = name.split(":").last().unwrap();
         let builder = context.create_builder();
         let mut compiler = Compiler::new(&context, &module, opt.debug);
@@ -87,10 +51,16 @@ fn main() {
         info!("Compiling {} runtime", name);
         compiler.compile(&builder, &rt_opcodes, &rt_bytes, name, true);
 
-        compiler.compile_abi(&builder, &contract.abi);
+        let contract = libsolenoid::ethabi::Contract::load(contract.abi.as_bytes()).unwrap();
+        compiler.compile_abi(&builder, &contract);
+
+        cffigen.add(name, contract);
     }
-        if opt.print_opcodes {
-            return;
-        }
+
+    if opt.print_opcodes {
+        return;
+    }
+
     module.print_to_file("out.ll").unwrap();
+    cffigen.generate("out/");
 }

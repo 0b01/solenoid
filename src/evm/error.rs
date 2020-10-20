@@ -1,8 +1,6 @@
-use std::io;
-
 #[derive(Debug)]
 pub enum DisassemblyError {
-    IOError(io::Error),
+    IOError(std::io::Error),
     InvalidHexCharacter,
     TooFewBytesForPush,
 }
@@ -35,8 +33,8 @@ impl std::cmp::PartialEq for DisassemblyError {
     }
 }
 
-impl std::convert::From<io::Error> for DisassemblyError {
-    fn from(err: io::Error) -> Self {
+impl std::convert::From<std::io::Error> for DisassemblyError {
+    fn from(err: std::io::Error) -> Self {
         DisassemblyError::IOError(err)
     }
 }

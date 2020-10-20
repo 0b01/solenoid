@@ -14,7 +14,7 @@ use serde_json;
 use std::collections::hash_map::Values;
 use std::collections::HashMap;
 use std::iter::Flatten;
-use std::{fmt, io};
+use std::{fmt};
 
 /// API building calls to contracts ABI.
 #[derive(Clone, Debug, PartialEq)]
@@ -77,7 +77,7 @@ impl<'a> Visitor<'a> for ContractVisitor {
 
 impl Contract {
 	/// Loads contract from json.
-	pub fn load<T: io::Read>(reader: T) -> errors::Result<Self> {
+	pub fn load<T: std::io::Read>(reader: T) -> errors::Result<Self> {
 		serde_json::from_reader(reader).map_err(From::from)
 	}
 

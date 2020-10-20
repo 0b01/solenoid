@@ -18,21 +18,6 @@ void udiv256(i8*, i8*, i8*);
 void sdiv256(i8*, i8*, i8*);
 void neg(i8*);
 void powmod(i8*, i8*, i8*);
-void SimpleStorage_constructor(
-    i8* tx,
-    long tx_sz,
-    long* ret_offset,
-    long* ret_len,
-    i8* storage
-);
-void SimpleStorage_runtime(
-    i8* tx,
-    long tx_sz,
-    long* ret_offset,
-    long* ret_len,
-    i8* storage
-);
-void abi_set_0(i8* tx, int* tx_len, i8* x);
 
 
 #endif

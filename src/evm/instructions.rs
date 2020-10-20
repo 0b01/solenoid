@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::evm::error::DisassemblyError;
-use std::io::{self, Cursor, Read};
+use std::io::{Cursor, Read};
 
 pub fn assemble(disassembly: Vec<Instruction>) -> Vec<u8> {
     let mut result = Vec::new();
@@ -239,7 +239,7 @@ pub fn disassemble_next_byte(
     Ok((offset, instruction))
 }
 
-fn read_n_bytes(cursor: &mut Cursor<&[u8]>, n: usize) -> Result<Vec<u8>, io::Error> {
+fn read_n_bytes(cursor: &mut Cursor<&[u8]>, n: usize) -> Result<Vec<u8>, std::io::Error> {
     let mut buffer = vec![0; n];
     cursor.read_exact(&mut buffer)?;
     Ok(buffer)

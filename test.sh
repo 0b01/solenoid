@@ -2,7 +2,7 @@
 export LLVM_DIR=/mnt/c/Users/ricky/Desktop/llvm/build/bin
 export LLVM_SYS_80_PREFIX=/mnt/c/Users/ricky/Desktop/llvm
 export LLVM_SYS_80_STRICT_VERSIONING=true
-export RUST_LOG=debug
+export RUST_LOG=warn
 
 # FILE=/home/g/Desktop/chainlink/evm-contracts/src/v0.7/dev/Owned.sol
 # FILE=/home/g/Desktop/chainlink/evm-contracts/src/v0.7/dev/Operator.sol

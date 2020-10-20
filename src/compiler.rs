@@ -3,6 +3,7 @@ use crate::evm::Instruction;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::string::String;
 
 use inkwell::AddressSpace;
 use inkwell::values::{FunctionValue, GlobalValue, BasicValueEnum, IntValue, PointerValue};
@@ -53,8 +54,7 @@ pub struct Compiler<'a, 'ctx> {
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
-    pub fn compile_abi(&self, builder: &'a Builder<'ctx>, abi: &str) {
-        let contract = Contract::load(abi.as_bytes()).unwrap();
+    pub fn compile_abi(&self, builder: &'a Builder<'ctx>, contract: &Contract) {
         for (_name, funs) in &contract.functions {
             for (idx, fun) in funs.iter().enumerate() {
                 self.compile_abi_function(builder, fun, idx);
@@ -95,7 +95,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             param_types.push(ty);
         }
 
-        let fun_name = format!("abi_{}_{}", fun.name, idx);
+        let fun_name = Self::format_abi_fn_name(fun, idx);
         let fn_ty = self.context.void_type().fn_type(param_types.as_slice(),false);
         let llvm_fun = self.module.add_function(&fun_name, fn_ty, None);
         let basic_block = self.context.append_basic_block(llvm_fun, "entry");
@@ -150,6 +150,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         builder.build_store(len_ptr, len);
+    }
+
+    pub fn format_abi_fn_name(fun: &Function, idx: usize) -> String {
+        if idx == 0 {
+            format!("abi_{}", fun.name)
+        } else {
+            format!("abi_{}_{}", fun.name, idx)
+        }
     }
 }
 
@@ -244,17 +252,40 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         builder.build_switch(dest, self.errbb.unwrap(), &cases);
     }
 
-    fn upow(&self) -> FunctionValue<'ctx> {
-        let name = "upow";
+    fn idiv256(&self) -> FunctionValue<'ctx> {
+        let name = "idiv256";
         if let Some(f) = self.module.get_function(&name) {
             return f;
         }
 
-        // upow
         let ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
         let fn_ty = self.context.void_type().fn_type(&[ty, ty, ty], false);
-        let upow = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
-        upow
+        let idiv256 = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
+        idiv256
+    }
+
+    fn udiv256(&self) -> FunctionValue<'ctx> {
+        let name = "udiv256";
+        if let Some(f) = self.module.get_function(&name) {
+            return f;
+        }
+
+        let ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
+        let fn_ty = self.context.void_type().fn_type(&[ty, ty, ty], false);
+        let udiv256 = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
+        udiv256
+    }
+
+    fn powmod(&self) -> FunctionValue<'ctx> {
+        let name = "powmod";
+        if let Some(f) = self.module.get_function(&name) {
+            return f;
+        }
+
+        let ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
+        let fn_ty = self.context.void_type().fn_type(&[ty, ty, ty], false);
+        let powmod = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
+        powmod
     }
 
     fn sha3(&self) -> FunctionValue<'ctx> {
@@ -376,10 +407,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 &[msg, msg_len, ret_offset, ret_len, storage],
                 false
             );
-        // let name = "contract";
-        let fn_name = format!("{}_{}", name, if is_runtime {"runtime"} else {"constructor"});
+        let fn_name = Self::format_fn_name(name, is_runtime);
         let function = self.module.add_function(&fn_name, fn_type, None);
         self.fun = Some(function);
+    }
+
+    pub fn format_fn_name(name: &str, is_runtime: bool) -> String {
+        // let name = "contract";
+        let fn_name = format!("{}_{}", name, if is_runtime {"runtime"} else {"constructor"});
+        fn_name
     }
 
     /// Print IR
@@ -512,7 +548,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Build instruction
-    fn build_instr(&self, offset: usize, instr: &Instruction, builder: &'a Builder<'ctx>, is_runtime: bool) -> Option<()> {
+    fn build_instr(&self, offset: usize, instr: &Instruction, builder: &'a Builder<'ctx>, _is_runtime: bool) -> Option<()> {
         debug!("{:?}", (offset, instr));
 
         builder.build_store(self.pc.unwrap().as_pointer_value(), self.i64(offset as u64));
@@ -861,16 +897,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let value = builder.build_int_sub(lhs, rhs, name).into();
                 self.build_push(builder, value, sp);
             }
-            Instruction::SDiv => {
-                let name = "sdiv";
-                self.push_label(name, builder);
-                let sp = self.build_sp(builder);
-                let lhs = self.build_peek(builder, sp, 1, "a");
-                let rhs = self.build_peek(builder, sp, 2, "b");
-                let sp = self.build_decr(builder, sp, 2);
-                let value = builder.build_int_signed_div(lhs, rhs, name).into();
-                self.build_push(builder, value, sp);
-            }
             Instruction::AddMod => {
                 let name = "addmod";
                 self.push_label(name, builder);
@@ -896,13 +922,42 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.build_push(builder, value, sp);
             }
             Instruction::Exp => {
-                error!("exp implementation is broken!"); //TODO: implement this
                 let name = "exp";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
                 let base_ptr = self.build_tos_ptr(builder, 1);
                 let exp_ptr = self.build_tos_ptr(builder, 2);
-                builder.build_call(self.upow(), &[exp_ptr.into(), base_ptr.into(), exp_ptr.into()], "upow");
+                let ret_ptr = self.build_tos_ptr(builder, 0);
+                builder.build_call(self.powmod(), &[exp_ptr.into(), base_ptr.into(), ret_ptr.into()], "powmod");
+
+                let ret = builder.build_load(ret_ptr, "ret");
+                builder.build_store(exp_ptr, ret);
+                self.build_decr(builder, sp, 1);
+            }
+            Instruction::SDiv => {
+                let name = "sdiv";
+                self.push_label(name, builder);
+                let sp = self.build_sp(builder);
+                let base_ptr = self.build_tos_ptr(builder, 1);
+                let exp_ptr = self.build_tos_ptr(builder, 2);
+                let ret_ptr = self.build_tos_ptr(builder, 0);
+                builder.build_call(self.idiv256(), &[exp_ptr.into(), base_ptr.into(), ret_ptr.into()], "powmod");
+
+                let ret = builder.build_load(ret_ptr, "ret");
+                builder.build_store(exp_ptr, ret);
+                self.build_decr(builder, sp, 1);
+            }
+            Instruction::Div => {
+                let name = "div";
+                self.push_label(name, builder);
+                let sp = self.build_sp(builder);
+                let base_ptr = self.build_tos_ptr(builder, 1);
+                let exp_ptr = self.build_tos_ptr(builder, 2);
+                let ret_ptr = self.build_tos_ptr(builder, 0);
+                builder.build_call(self.udiv256(), &[exp_ptr.into(), base_ptr.into(), ret_ptr.into()], "powmod");
+
+                let ret = builder.build_load(ret_ptr, "ret");
+                builder.build_store(exp_ptr, ret);
                 self.build_decr(builder, sp, 1);
             }
             Instruction::Mod => {
@@ -923,16 +978,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let rhs = self.build_peek(builder, sp, 2, "b");
                 let sp = self.build_decr(builder, sp, 2);
                 let value = builder.build_int_signed_rem(lhs, rhs, name).into();
-                self.build_push(builder, value, sp);
-            }
-            Instruction::Div => {
-                let name = "div";
-                self.push_label(name, builder);
-                let sp = self.build_sp(builder);
-                let lhs = self.build_peek(builder, sp, 1, "a");
-                let rhs = self.build_peek(builder, sp, 2, "b");
-                let sp = self.build_decr(builder, sp, 2);
-                let value = builder.build_int_unsigned_div(lhs, rhs, name).into();
                 self.build_push(builder, value, sp);
             }
             Instruction::Mul => {
