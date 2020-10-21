@@ -105,15 +105,18 @@ impl CFFIGenerator {
         contents += "\n";
         contents += &self.fn_stubs.join("\n\n");
         contents += "\n";
-        let header_path = format!("{}/src/contracts.h", outdir);
-        let bindings_path = format!("{}/bindings.rs", outdir);
+        let contract_header = format!("{}/src/contracts.h", outdir);
+        let runtime_header = format!("{}/src/rt.h", outdir);
+        let bindings_filename = format!("{}/src/bindings.rs", outdir);
 
         // write c header
-        fs::write(&header_path, contents).expect("unable to write contracts.h header");
+        fs::write(&contract_header, contents).expect("unable to write contracts.h header");
         Self::copy_deps(&outdir);
 
         // write rust bindings
-        let mut builder = bindgen::builder().header(&header_path);
+        let mut builder = bindgen::builder()
+            .header(&contract_header)
+            .header(&runtime_header);
         for f in &self.fn_names {
             builder = builder.whitelist_function(f);
         }
@@ -122,7 +125,7 @@ impl CFFIGenerator {
         let bindings = builder
             .generate()
             .expect("unable to generate bindings");
-        bindings.write_to_file(bindings_path).expect("unable to write bindings");
+        bindings.write_to_file(bindings_filename).expect("unable to write bindings");
     }
 
     pub fn copy_deps(outdir: &str) {

@@ -14,7 +14,7 @@ cargo run -- --input $FILE
 # $LLVM_DIR/opt out.ll --O3 -S -o opt.ll
 # $LLVM_DIR/llc out.ll -march=bpf -o out.bpf.s -O3
 # $LLVM_DIR/llc out.ll -o out.x64.s -O3
-$LLVM_DIR/llc runtime/arith.ll -filetype=obj -o arith.o -relocation-model=pic -O3
-$LLVM_DIR/llc out/src/contracts.ll -filetype=obj -o out.o -relocation-model=pic -O3
-clang runtime/rt.c runtime/main.c arith.o out.o -fPIC -o a.out
-./a.out
+# $LLVM_DIR/llc runtime/arith.ll -filetype=obj -o arith.o -relocation-model=pic -O3
+# $LLVM_DIR/llc out/src/contracts.ll -filetype=obj -o out.o -relocation-model=pic -O3
+# clang runtime/rt.c runtime/main.c arith.o out.o -fPIC -o a.out
+# ./a.out

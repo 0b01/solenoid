@@ -1,4 +1,6 @@
+use std::process::Command;
+
 #[test]
 fn test_add() {
-    println!("HELLO");
+    let cmd = Command::new("solc")
 }

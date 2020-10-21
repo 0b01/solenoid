@@ -30,7 +30,8 @@ pub struct Contracts {
     contracts: HashMap<String, Contract>,
 }
 
-pub fn solc_compile(path: &PathBuf) -> HashMap<String, Contract> { let cmd = Command::new("solc")
+pub fn solc_compile(path: &PathBuf) -> HashMap<String, Contract> {
+    let cmd = Command::new("solc")
             .arg(path)
             .arg("--combined-json")
             .arg("bin,bin-runtime,abi")
