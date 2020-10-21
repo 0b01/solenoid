@@ -8,3 +8,4 @@ opt.ll
 bindings.rs
 contracts.h
 /out
+test.ll

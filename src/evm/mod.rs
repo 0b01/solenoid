@@ -42,7 +42,7 @@ impl Disassembly {
     }
 }
 
-pub fn assemble_instructions(disassembly: Vec<Instruction>) -> Vec<u8> {
+pub fn assemble_instructions(disassembly: &[Instruction]) -> Vec<u8> {
     let mut result = Vec::new();
     for disas in disassembly {
         result.extend(assemble_instruction(disas));

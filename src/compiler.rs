@@ -252,16 +252,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         builder.build_switch(dest, self.errbb.unwrap(), &cases);
     }
 
-    fn idiv256(&self) -> FunctionValue<'ctx> {
-        let name = "idiv256";
+    fn sdiv256(&self) -> FunctionValue<'ctx> {
+        let name = "sdiv256";
         if let Some(f) = self.module.get_function(&name) {
             return f;
         }
 
         let ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
         let fn_ty = self.context.void_type().fn_type(&[ty, ty, ty], false);
-        let idiv256 = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
-        idiv256
+        let sdiv256 = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
+        sdiv256
     }
 
     fn udiv256(&self) -> FunctionValue<'ctx> {
@@ -548,7 +548,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Build instruction
-    fn build_instr(&self, offset: usize, instr: &Instruction, builder: &'a Builder<'ctx>, _is_runtime: bool) -> Option<()> {
+    fn build_instr(&self, offset: usize, instr: &Instruction, builder: &'a Builder<'ctx>, is_runtime: bool) -> Option<()> {
         debug!("{:?}", (offset, instr));
 
         builder.build_store(self.pc.unwrap().as_pointer_value(), self.i64(offset as u64));
@@ -646,7 +646,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let offset = self.build_peek(builder, sp, 1, "offset");
                 let sp = self.build_decr(builder, sp, 2);
 
-                let length = builder.build_int_cast(length, self.context.i16_type(), "length");
+                let length = builder.build_int_z_extend_or_bit_cast(length, self.context.i16_type(), "length");
 
                 let mem = self.mem.unwrap().as_pointer_value();
                 let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.context.i64_type().const_zero(), offset], "stack") };
@@ -710,7 +710,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
                 let calldatasize = self.fun.unwrap().get_nth_param(1).unwrap().into_int_value();
-                let calldatasize = builder.build_int_cast(calldatasize, self.i256_ty, "calldatasize").into();
+                let calldatasize = builder.build_int_z_extend_or_bit_cast(calldatasize, self.i256_ty, "calldatasize").into();
                 self.build_push(builder, calldatasize, sp);
             }
             Instruction::Invalid => {
@@ -730,8 +730,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let offset = self.build_peek(builder, sp, 1, "offset");
                 let _sp = self.build_decr(builder, sp, 2);
 
-                let length = builder.build_int_cast(length, self.context.i64_type(), "length");
-                let offset = builder.build_int_cast(offset, self.context.i64_type(), "offset");
+                let length = builder.build_int_z_extend_or_bit_cast(length, self.context.i64_type(), "length");
+                let offset = builder.build_int_z_extend_or_bit_cast(offset, self.context.i64_type(), "offset");
 
                 let offset_ptr = self.fun.unwrap().get_nth_param(2).unwrap().into_pointer_value();
                 let len_ptr = self.fun.unwrap().get_nth_param(3).unwrap().into_pointer_value();
@@ -759,7 +759,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                         "dest") };
 
                 // memory[destOffset:destOffset+length] = code[offset:offset+length];
-                // let length = builder.build_int_cast(length, self.context.i64_type(), "length");
+                // let length = builder.build_int_z_extend_or_bit_cast(length, self.context.i64_type(), "length");
                 builder.build_memcpy(dest, 1, src, 1, length).unwrap();
             }
             Instruction::JumpDest => {
@@ -898,28 +898,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.build_push(builder, value, sp);
             }
             Instruction::AddMod => {
-                let name = "addmod";
-                self.push_label(name, builder);
-                let sp = self.build_sp(builder);
-                let lhs = self.build_peek(builder, sp, 1, "a");
-                let rhs = self.build_peek(builder, sp, 2, "b");
-                let n = self.build_peek(builder, sp, 3, "N");
-                let sp = self.build_decr(builder, sp, 3);
-                let add = builder.build_int_add(lhs, rhs, "add");
-                let value = builder.build_int_unsigned_rem(add, n, name).into();
-                self.build_push(builder, value, sp);
+                self.build_instr(offset, &Instruction::Add, builder, is_runtime)?;
+                self.build_instr(offset, &Instruction::Mod, builder, is_runtime)?;
             }
             Instruction::MulMod => {
-                let name = "mulmod";
-                self.push_label(name, builder);
-                let sp = self.build_sp(builder);
-                let lhs = self.build_peek(builder, sp, 1, "a");
-                let rhs = self.build_peek(builder, sp, 2, "b");
-                let n = self.build_peek(builder, sp, 3, "N");
-                let sp = self.build_decr(builder, sp, 3);
-                let mul = builder.build_int_mul(lhs, rhs, "add");
-                let value = builder.build_int_unsigned_rem(mul, n, name).into();
-                self.build_push(builder, value, sp);
+                self.build_instr(offset, &Instruction::Mul, builder, is_runtime)?;
+                self.build_instr(offset, &Instruction::Mod, builder, is_runtime)?;
             }
             Instruction::Exp => {
                 let name = "exp";
@@ -928,7 +912,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let base_ptr = self.build_tos_ptr(builder, 1);
                 let exp_ptr = self.build_tos_ptr(builder, 2);
                 let ret_ptr = self.build_tos_ptr(builder, 0);
-                builder.build_call(self.powmod(), &[exp_ptr.into(), base_ptr.into(), ret_ptr.into()], "powmod");
+                builder.build_call(self.powmod(), &[base_ptr.into(), exp_ptr.into(), ret_ptr.into()], "powmod");
 
                 let ret = builder.build_load(ret_ptr, "ret");
                 builder.build_store(exp_ptr, ret);
@@ -938,47 +922,53 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let name = "sdiv";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let base_ptr = self.build_tos_ptr(builder, 1);
-                let exp_ptr = self.build_tos_ptr(builder, 2);
-                let ret_ptr = self.build_tos_ptr(builder, 0);
-                builder.build_call(self.idiv256(), &[exp_ptr.into(), base_ptr.into(), ret_ptr.into()], "powmod");
+                let d_ptr = self.build_tos_ptr(builder, 2);
+                let n_ptr = self.build_tos_ptr(builder, 1);
+                let q_ptr = self.build_tos_ptr(builder, 0);
+                builder.build_call(self.sdiv256(), &[n_ptr.into(), d_ptr.into(), q_ptr.into()], "sdiv");
 
-                let ret = builder.build_load(ret_ptr, "ret");
-                builder.build_store(exp_ptr, ret);
+                let ret = builder.build_load(q_ptr, "ret");
+                builder.build_store(d_ptr, ret);
                 self.build_decr(builder, sp, 1);
             }
             Instruction::Div => {
                 let name = "div";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let base_ptr = self.build_tos_ptr(builder, 1);
-                let exp_ptr = self.build_tos_ptr(builder, 2);
-                let ret_ptr = self.build_tos_ptr(builder, 0);
-                builder.build_call(self.udiv256(), &[exp_ptr.into(), base_ptr.into(), ret_ptr.into()], "powmod");
+                let d_ptr = self.build_tos_ptr(builder, 2);
+                let n_ptr = self.build_tos_ptr(builder, 1);
+                let q_ptr = self.build_tos_ptr(builder, 0);
+                builder.build_call(self.udiv256(), &[n_ptr.into(), d_ptr.into(), q_ptr.into()], "div");
 
-                let ret = builder.build_load(ret_ptr, "ret");
-                builder.build_store(exp_ptr, ret);
+                let ret = builder.build_load(q_ptr, "ret");
+                builder.build_store(d_ptr, ret);
                 self.build_decr(builder, sp, 1);
             }
             Instruction::Mod => {
                 let name = "mod";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let lhs = self.build_peek(builder, sp, 1, "a");
-                let rhs = self.build_peek(builder, sp, 2, "b");
-                let sp = self.build_decr(builder, sp, 2);
-                let value = builder.build_int_unsigned_rem(lhs, rhs, name).into();
-                self.build_push(builder, value, sp);
+                let d_ptr = self.build_tos_ptr(builder, 2);
+                let n_ptr = self.build_tos_ptr(builder, 1);
+                let q_ptr = self.build_tos_ptr(builder, 0);
+                builder.build_call(self.udiv256(), &[n_ptr.into(), d_ptr.into(), q_ptr.into()], "mod");
+
+                let ret = builder.build_load(n_ptr, "ret");
+                builder.build_store(d_ptr, ret);
+                self.build_decr(builder, sp, 1);
             }
             Instruction::SMod => {
-                let name = "mod";
+                let name = "smod";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let lhs = self.build_peek(builder, sp, 1, "a");
-                let rhs = self.build_peek(builder, sp, 2, "b");
-                let sp = self.build_decr(builder, sp, 2);
-                let value = builder.build_int_signed_rem(lhs, rhs, name).into();
-                self.build_push(builder, value, sp);
+                let d_ptr = self.build_tos_ptr(builder, 2);
+                let n_ptr = self.build_tos_ptr(builder, 1);
+                let q_ptr = self.build_tos_ptr(builder, 0);
+                builder.build_call(self.sdiv256(), &[n_ptr.into(), d_ptr.into(), q_ptr.into()], "smod");
+
+                let ret = builder.build_load(n_ptr, "ret");
+                builder.build_store(d_ptr, ret);
+                self.build_decr(builder, sp, 1);
             }
             Instruction::Mul => {
                 let name = "mul";
@@ -1076,7 +1066,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let rhs = self.build_peek(builder, sp, 2, "b");
                 let sp = self.build_decr(builder, sp, 2);
                 let value = builder.build_int_compare(IntPredicate::ULT, lhs, rhs, "lt");
-                let value = builder.build_int_cast(value, self.i256_ty, "value").into();
+                let value = builder.build_int_z_extend(value, self.i256_ty, "value").into();
                 self.build_push(builder, value, sp);
             }
             Instruction::Gt => {
@@ -1087,7 +1077,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let rhs = self.build_peek(builder, sp, 2, "b");
                 let sp = self.build_decr(builder, sp, 2);
                 let value = builder.build_int_compare(IntPredicate::UGT, lhs, rhs, "lt");
-                let value = builder.build_int_cast(value, self.i256_ty, "value").into();
+                let value = builder.build_int_z_extend(value, self.i256_ty, "value").into();
                 self.build_push(builder, value, sp);
             }
             Instruction::SLt => {
@@ -1098,7 +1088,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let rhs = self.build_peek(builder, sp, 2, "b");
                 let sp = self.build_decr(builder, sp, 2);
                 let value = builder.build_int_compare(IntPredicate::SLT, lhs, rhs, "lt");
-                let value = builder.build_int_cast(value, self.i256_ty, "value").into();
+                let value = builder.build_int_z_extend(value, self.i256_ty, "value").into();
                 self.build_push(builder, value, sp);
             }
             Instruction::SGt => {
@@ -1109,7 +1099,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let rhs = self.build_peek(builder, sp, 2, "b");
                 let sp = self.build_decr(builder, sp, 2);
                 let value = builder.build_int_compare(IntPredicate::SGT, lhs, rhs, "lt");
-                let value = builder.build_int_cast(value, self.i256_ty, "value").into();
+                let value = builder.build_int_z_extend(value, self.i256_ty, "value").into();
                 self.build_push(builder, value, sp);
             }
             Instruction::EQ => {

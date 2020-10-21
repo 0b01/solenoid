@@ -120,7 +120,19 @@ impl CFFIGenerator {
         for f in &self.fn_names {
             builder = builder.whitelist_function(f);
         }
-        builder = builder.whitelist_var("stack");
+
+        for f in &["prt"] {
+            builder = builder.whitelist_function(f);
+        }
+
+        let vars = [
+            "stack",
+            "storage",
+            "sp",
+        ];
+        for var in &vars {
+            builder = builder.whitelist_var(var);
+        }
 
         let bindings = builder
             .generate()
@@ -148,6 +160,7 @@ impl CFFIGenerator {
             "rt.c",
             "rt.h",
             "arith.ll",
+            "main.c",
         );
     }
 }

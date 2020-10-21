@@ -47,7 +47,7 @@ fn main() {
         Instruction::Push(vec![10]),
         Instruction::Div,
     ];
-    let bytes = evm::assemble_instructions(instrs);
+    let bytes = evm::assemble_instructions(&instrs);
     let instrs = evm::Disassembly::from_bytes(&bytes).unwrap().instructions;
 
     let mut compiler = Compiler::new(&context, &module, false);

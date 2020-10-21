@@ -15,7 +15,7 @@
 use crate::evm::error::DisassemblyError;
 use std::io::{Cursor, Read};
 
-pub fn assemble(disassembly: Vec<Instruction>) -> Vec<u8> {
+pub fn assemble(disassembly: &[Instruction]) -> Vec<u8> {
     let mut result = Vec::new();
     for disas in disassembly {
         result.extend(assemble_instruction(disas));
@@ -23,7 +23,7 @@ pub fn assemble(disassembly: Vec<Instruction>) -> Vec<u8> {
     result
 }
 
-pub fn assemble_instruction(instruction: Instruction) -> Vec<u8> {
+pub fn assemble_instruction(instruction: &Instruction) -> Vec<u8> {
     match instruction {
         Instruction::Stop => vec![0x00],
         Instruction::Add => vec![0x01],
@@ -92,9 +92,9 @@ pub fn assemble_instruction(instruction: Instruction) -> Vec<u8> {
             res.extend(v);
             res
         }
-        Instruction::Dup(v) => vec![0x80 + v as u8],
-        Instruction::Swap(v) => vec![0x90 + (v as u8 - 1)],
-        Instruction::Log(v) => vec![0xa0 + v as u8],
+        Instruction::Dup(v) => vec![0x80 + *v as u8],
+        Instruction::Swap(v) => vec![0x90 + (*v as u8 - 1)],
+        Instruction::Log(v) => vec![0xa0 + *v as u8],
         Instruction::Create => vec![0xf0],
         Instruction::Call => vec![0xf1],
         Instruction::CallCode => vec![0xf2],
