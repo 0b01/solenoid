@@ -534,7 +534,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let sp = self.build_sp(builder);
         let stack = self.stack.unwrap().as_pointer_value();
         let tos = builder.build_int_sub(sp, self.i64(idx), "sp_p_1");
-        let key_ptr = unsafe { builder.build_in_bounds_gep(stack, &[self.context.i64_type().const_zero(), tos], "stack") };
+        let key_ptr = unsafe { builder.build_in_bounds_gep(stack, &[self.i64(0), tos], "stack") };
         let key_ptr_i8 = builder.build_pointer_cast(key_ptr, self.context.i8_type().ptr_type(AddressSpace::Generic), "key");
         key_ptr_i8
     }
@@ -624,10 +624,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::SLoad =>  {
                 let name = "sload";
                 self.push_label(name, builder);
-                let sp = self.build_sp(builder);
                 let tos = self.build_tos_ptr(builder, 1);
                 builder.build_call(self.sload(), &[self.storage_ptr().into(), tos.into()], "sload");
-                self.build_incr(builder, sp, 1);
+                // no increment because value overwrites key
             }
             Instruction::SStore => {
                 let name = "sstore";
@@ -639,8 +638,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 builder.build_call(self.sstore(), &[self.storage_ptr().into(), key_ptr_i8.into(), val_ptr_i8.into()], "sstore");
                 self.build_decr(builder, sp, 1);
-
-                //TODO: check return result
             }
             Instruction::Sha3 => {
                 let name = "sha3";
@@ -742,6 +739,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let len_ptr = self.fun.unwrap().get_nth_param(3).unwrap().into_pointer_value();
                 builder.build_store(offset_ptr, offset);
                 builder.build_store(len_ptr, length);
+
+                builder.build_return(None);
             }
             Instruction::CodeCopy => {
                 let name = "codecopy";

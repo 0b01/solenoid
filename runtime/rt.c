@@ -2,7 +2,7 @@
 
 /* overwrite key */
 void sload(i8* st, i8* key) {
-    printf("sload called\n");
+    // printf("sload called\n");
     for (int i = 0; i < 1024 * 64; i += 64) {
         if (cmp(st + i, key)) {
             cpy(key, st+i+32);
