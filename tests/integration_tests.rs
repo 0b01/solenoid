@@ -140,6 +140,23 @@ fn test_stack() {
     ]), &[vec![30], vec![10], vec![10]]);
 }
 
+#[test]
+fn test_mem() {
+    assert_stack(&compile_and_run(&[
+        Instruction::Push(vec![0xAA, 0xBB, 0xCC, 0xDD]),
+        Instruction::Push(vec![31]),
+        Instruction::Byte,
+        Instruction::Push(vec![0xAA, 0xBB, 0xCC, 0xDD]),
+        Instruction::Push(vec![30]),
+        Instruction::Byte,
+        Instruction::Push(vec![0xAA, 0xBB, 0xCC, 0xDD]),
+        Instruction::Push(vec![29]),
+        Instruction::Byte,
+        Instruction::Push(vec![0xAA, 0xBB, 0xCC, 0xDD]),
+        Instruction::Push(vec![28]),
+        Instruction::Byte,
+    ]), &[vec![0xDD], vec![0xCC], vec![0xBB], vec![0xAA]]);
+}
 
 #[test]
 fn test_arith() {

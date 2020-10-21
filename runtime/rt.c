@@ -2,7 +2,7 @@
 
 /* overwrite key */
 void sload(i8* st, i8* key) {
-    // printf("sload called\n");
+    printf("sload called\n");
     for (int i = 0; i < 1024 * 64; i += 64) {
         if (cmp(st + i, key)) {
             cpy(key, st+i+32);
@@ -59,10 +59,7 @@ void dump_stack(i8* label) {
         i8* arrow = (sp * 32) == i ? (i8*)" ->" : (i8*)"   ";
         printf("%s@%04x ", arrow, i);
         if ((sp * 32) == i) break;
-        for (int j = i + 31; j >= i; j--) {
-            i8 k = stack[j];
-            printf("%02X", k);
-        }
+        prt(stack+i);
         printf("\n");
     }
     printf("\n");
@@ -71,10 +68,7 @@ void dump_stack(i8* label) {
     size = top > 0 ? top * 32 : (1024 * 256 / 8);
     for (int i = 0; i < size; i += 32) {
         printf(" %04x ", i);
-        for (int j = i + 31; j >= i; j--) {
-            i8 k = mem[j];
-            printf("%02X", k);
-        }
+        prt(mem+i);
         printf("\n");
     }
     printf("\n");
@@ -383,7 +377,7 @@ void cpy(i8* a, i8* b) {
 }
 
 void prt(i8* a) {
-    for (int i = 0; i < 32; i++) {
+    for (int i = 31; i >= 0; i--) {
         printf("%02X", a[i]);
     }
 }

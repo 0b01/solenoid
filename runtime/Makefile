@@ -27,3 +27,6 @@ $(EXE): $(LLO) $(C_OBJECTS)
 
 clean:
 	rm -R $(OUT)
+
+run: $(EXE) 
+	./$(OUT)/$(EXE)

@@ -343,6 +343,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         swap_endianness
     }
 
+    fn storage_ptr(&self) -> PointerValue<'ctx> {
+        self.fun.unwrap().get_nth_param(4).unwrap().into_pointer_value()
+    }
+
     fn dump_stack(&self) -> FunctionValue<'ctx> {
         let name = "dump_stack";
         if let Some(f) = self.module.get_function(&name) {
@@ -584,13 +588,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             Instruction::CodeSize => {
                 let name = "codesize";
+                warn!("{} is unaudited", name);
                 self.push_label(name, builder);
                 // let value = self.i256(value, sign_extend)
                 // TODO:
             }
             Instruction::SignExtend => {
-                error!("sext is unimpl");
                 let name = "signextend";
+                warn!("{} is unaudited", name);
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
                 let x = self.build_peek(builder, sp, 2, "x");
@@ -619,34 +624,34 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::SLoad =>  {
                 let name = "sload";
                 self.push_label(name, builder);
+                let sp = self.build_sp(builder);
                 let tos = self.build_tos_ptr(builder, 1);
-                let storage_ptr = self.fun.unwrap().get_nth_param(4).unwrap().into_pointer_value();
-                builder.build_call(self.sload(), &[storage_ptr.into(), tos.into()], "sload");
-                // TODO: pass tos directly as out param
+                builder.build_call(self.sload(), &[self.storage_ptr().into(), tos.into()], "sload");
+                self.build_incr(builder, sp, 1);
             }
             Instruction::SStore => {
                 let name = "sstore";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
 
-                let storage_ptr = self.fun.unwrap().get_nth_param(4).unwrap().into_pointer_value();
                 let key_ptr_i8 = self.build_tos_ptr(builder, 1);
                 let val_ptr_i8 = self.build_tos_ptr(builder, 2);
 
-                builder.build_call(self.sstore(), &[storage_ptr.into(), key_ptr_i8.into(), val_ptr_i8.into()], "sstore");
+                builder.build_call(self.sstore(), &[self.storage_ptr().into(), key_ptr_i8.into(), val_ptr_i8.into()], "sstore");
                 self.build_decr(builder, sp, 1);
 
                 //TODO: check return result
             }
             Instruction::Sha3 => {
                 let name = "sha3";
+                warn!("{} is unaudited", name);
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
                 let length = self.build_peek(builder, sp, 2, "length");
                 let offset = self.build_peek(builder, sp, 1, "offset");
                 let sp = self.build_decr(builder, sp, 2);
 
-                let length = builder.build_int_z_extend_or_bit_cast(length, self.context.i16_type(), "length");
+                let length = builder.build_int_truncate_or_bit_cast(length, self.context.i16_type(), "length");
 
                 let mem = self.mem.unwrap().as_pointer_value();
                 let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.context.i64_type().const_zero(), offset], "stack") };
@@ -710,7 +715,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
                 let calldatasize = self.fun.unwrap().get_nth_param(1).unwrap().into_int_value();
-                let calldatasize = builder.build_int_z_extend_or_bit_cast(calldatasize, self.i256_ty, "calldatasize").into();
+                let calldatasize = builder.build_int_z_extend(calldatasize, self.i256_ty, "calldatasize").into();
                 self.build_push(builder, calldatasize, sp);
             }
             Instruction::Invalid => {
@@ -730,8 +735,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let offset = self.build_peek(builder, sp, 1, "offset");
                 let _sp = self.build_decr(builder, sp, 2);
 
-                let length = builder.build_int_z_extend_or_bit_cast(length, self.context.i64_type(), "length");
-                let offset = builder.build_int_z_extend_or_bit_cast(offset, self.context.i64_type(), "offset");
+                let length = builder.build_int_truncate_or_bit_cast(length, self.context.i64_type(), "length");
+                let offset = builder.build_int_truncate_or_bit_cast(offset, self.context.i64_type(), "offset");
 
                 let offset_ptr = self.fun.unwrap().get_nth_param(2).unwrap().into_pointer_value();
                 let len_ptr = self.fun.unwrap().get_nth_param(3).unwrap().into_pointer_value();
@@ -740,6 +745,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             Instruction::CodeCopy => {
                 let name = "codecopy";
+                warn!("callvalue is unaudited");
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
                 let length = self.build_peek(builder, sp, 3, "length");
@@ -770,6 +776,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             Instruction::Revert => {
                 let name = "revert";
+                warn!("{} is unimplemented", name);
                 self.push_label(name, builder);
                 builder.build_unconditional_branch(self.errbb.unwrap());
             }
@@ -840,7 +847,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 builder.build_store(addr_r, value_l);
             }
             Instruction::CallValue => {
-                // TODO:
+                // TODO: gasless
                 warn!("callvalue is unimpl");
                 let name = "callvalue";
                 self.push_label(name, builder);
@@ -849,15 +856,17 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 self.build_push(builder, value, sp);
             }
             Instruction::MLoad => {
-                let name = "mstore";
+                let name = "mload";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let (offset, _sp) = self.build_pop(builder, sp);
-                let offset = builder.build_int_truncate_or_bit_cast(offset, self.context.i64_type(), "idx");
+                let offset = self.build_peek(builder, sp, 1, "offset");
+                let sp = self.build_decr(builder, sp, 1);
 
                 let mem = self.mem.unwrap().as_pointer_value();
-                let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.context.i64_type().const_zero(), offset], "stack") };
-                let _value = builder.build_load(addr, "value");
+                let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.i64(0), offset], "off") };
+                let addr = builder.build_pointer_cast(addr, self.i256_ty.ptr_type(AddressSpace::Generic), "addr");
+                let value = builder.build_load(addr, "value");
+                self.build_push(builder, value, sp);
             }
             Instruction::MStore8 => {
                 let name = "mstore8";
@@ -880,10 +889,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let offset = self.build_peek(builder, sp, 1, "offset");
                 let value = self.build_peek(builder, sp, 2, "value");
                 let _sp = self.build_decr(builder, sp, 2);
-                let offset = builder.build_int_truncate_or_bit_cast(offset, self.context.i64_type(), "idx");
 
                 let mem = self.mem.unwrap().as_pointer_value();
-                let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.context.i64_type().const_zero(), offset], "stack") };
+                let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.i64(0), offset], "off") };
                 let addr = builder.build_pointer_cast(addr, self.i256_ty.ptr_type(AddressSpace::Generic), "addr");
                 builder.build_store(addr, value);
             }
