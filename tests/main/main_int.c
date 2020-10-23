@@ -1,4 +1,4 @@
-#include "../runtime/rt.h"
+#include "../../runtime/rt.h"
 
 extern void test_constructor(i8*, long, long*, long*, i8*);
 int main() {

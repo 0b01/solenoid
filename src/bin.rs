@@ -1,7 +1,7 @@
 use inkwell::context::Context;
 use libsolenoid::compiler::Compiler;
 use libsolenoid::solc;
-use libsolenoid::cffigen::CFFIGenerator;
+use libsolenoid::cffi::CFFIGenerator;
 use structopt::StructOpt;
 use std::path::PathBuf;
 use uint::rustc_hex::FromHex;

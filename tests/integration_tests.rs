@@ -12,7 +12,7 @@ fn assert_stack(actual_stack: &str, expected_stack:&[Vec<u8>]) {
     let actual = actual_stack.split("\n");
     let actual = actual_stack.split("\n").take(actual.count() - 1)
         .map(|i|i.from_hex().unwrap())
-        .map(|i: Vec<u8> | U256::from_little_endian(&i)).collect::<Vec<_>>();
+        .map(|i: Vec<u8> | U256::from_big_endian(&i)).collect::<Vec<_>>();
     let expected = expected_stack.iter().map(|i| U256::from_big_endian(i)).collect::<Vec<_>>();
     assert_eq!(actual, expected);
 }
@@ -30,9 +30,9 @@ fn compile_and_run(instrs: &[Instruction]) -> String {
     let mut compiler = Compiler::new(&context, &module, false);
     compiler.compile(&builder, &instrs, &bytes, "test", false);
     // compiler.dbg();
-    module.print_to_file("test.ll").unwrap();
+    module.print_to_file("./test.ll").unwrap();
 
-    Command::new("./tests/build.sh").output().unwrap();
+    Command::new("./tests/build.sh").arg("./test.ll").arg("./tests/main/main_int.c").spawn().unwrap().wait();
     let output = Command::new("./bin/contracts.exe").output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     stdout.to_string()

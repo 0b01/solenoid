@@ -14,9 +14,11 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
 
-use crate::ethabi::{Function, Contract, param_type::ParamType::*};
+use crate::ethabi::{Function, Constructor, Contract, param_type::ParamType::*, Param};
 
 use log::{info, warn, error, debug};
+
+const CODE_CTOR: &'static str = "code_ctor";
 
 fn nibble2i256(vals: &[u8]) -> Vec<u64> {
     let mut ret = vec![];
@@ -45,6 +47,7 @@ pub struct Compiler<'a, 'ctx> {
     stack: Option<GlobalValue<'ctx>>,
     mem: Option<GlobalValue<'ctx>>,
     code: Option<GlobalValue<'ctx>>,
+    code_size: u64,
     fun: Option<FunctionValue<'ctx>>,
     jumpbb: Option<BasicBlock<'ctx>>,
     errbb: Option<BasicBlock<'ctx>>,
@@ -55,20 +58,30 @@ pub struct Compiler<'a, 'ctx> {
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
     pub fn compile_abi(&self, builder: &'a Builder<'ctx>, contract: &Contract) {
+        if let Some(ctor) = &contract.constructor {
+            let fun = Function {
+                name: "constructor".to_owned(),
+                inputs: ctor.inputs.clone(),
+                outputs: vec![],
+                constant: false,
+            };
+            self.compile_abi_function(builder, &fun, 0, true);
+        }
         for (_name, funs) in &contract.functions {
             for (idx, fun) in funs.iter().enumerate() {
-                self.compile_abi_function(builder, fun, idx);
+                self.compile_abi_function(builder, fun, idx, false);
             }
         }
     }
-
+    
     /// void get(char* out_buf, int* buf_length, params..)
-    fn compile_abi_function(&self, builder: &'a Builder<'ctx>, fun: &Function, idx: usize) {
+    fn compile_abi_function(&self, builder: &'a Builder<'ctx>, fun: &Function, idx: usize, is_ctor: bool) {
         let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
         let buf_len_ty = self.context.i32_type().ptr_type(AddressSpace::Generic).into();
         let mut param_types: Vec<BasicTypeEnum<'ctx>> = vec![char_ptr_ty, buf_len_ty];
 
         for param in &fun.inputs {
+
             let ty = match param.kind {
                 Address => char_ptr_ty,
                 Bytes => char_ptr_ty,
@@ -101,25 +114,31 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let basic_block = self.context.append_basic_block(llvm_fun, "entry");
 
         builder.position_at_end(basic_block);
-        self.build_abi_conversion(builder, fun, llvm_fun);
+        self.build_abi_conversion(builder, fun, llvm_fun, is_ctor);
         builder.build_return(None);
     }
 
-    fn build_abi_conversion(&self, builder: &'a Builder<'ctx>, fun: &Function, llvm_fun: FunctionValue<'ctx>) {
+    fn build_abi_conversion(&self, builder: &'a Builder<'ctx>, fun: &Function, llvm_fun: FunctionValue<'ctx>, is_ctor: bool) {
         let buf = llvm_fun.get_nth_param(0).unwrap().into_pointer_value();
         let len_ptr = llvm_fun.get_nth_param(1).unwrap().into_pointer_value();
         let mut len  = builder.build_load(len_ptr, "len").into_int_value();
 
-        // encode abi signature
-        let sig = fun.short_signature();
-        let sig_glb = self.module.add_global(
-            self.context.i8_type().array_type(sig.len() as u32),
-            Some(AddressSpace::Generic),
-            &format!("{}_sig", fun.name));
-        let sig_buf = self.context.const_string(&sig, false);
-        sig_glb.set_initializer(&sig_buf);
-        builder.build_memcpy(buf, 1, sig_glb.as_pointer_value(), 1, self.i32(sig.len() as u64)).unwrap();
-        len = builder.build_int_add(len, self.i32(4), "len");
+        if is_ctor {
+            let code = self.module.get_global(CODE_CTOR).unwrap().as_pointer_value();
+            builder.build_memcpy(buf, 1, code, 1, self.i32(self.code_size)).unwrap();
+            len = builder.build_int_add(len, self.i32(self.code_size as u64), "len");
+        } else {
+            // encode abi signature
+            let sig = fun.short_signature();
+            let sig_glb = self.module.add_global(
+                self.context.i8_type().array_type(sig.len() as u32),
+                Some(AddressSpace::Generic),
+                &format!("{}_sig", fun.name));
+            let sig_buf = self.context.const_string(&sig, false);
+            sig_glb.set_initializer(&sig_buf);
+            builder.build_memcpy(buf, 1, sig_glb.as_pointer_value(), 1, self.i32(sig.len() as u64)).unwrap();
+            len = builder.build_int_add(len, self.i32(4), "len");
+        }
 
         for (idx, param) in fun.inputs.iter().enumerate() {
             let x = llvm_fun.get_nth_param(idx as u32 + 2).unwrap();
@@ -177,6 +196,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             stack: None,
             mem: None,
             code: None,
+            code_size: 0,
             fun: None,
             jumpdests: BTreeMap::new(),
             jumpbb: None,
@@ -371,33 +391,35 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // stack
         let stack = self.module.add_global(i256_arr_ty, Some(AddressSpace::Generic), "stack");
         stack.set_initializer(&i256_arr_ty.const_zero());
+        self.stack = Some(stack);
 
         // sp
         let sp = self.module.add_global(i64_ty, Some(AddressSpace::Generic), "sp");
         sp.set_initializer(&i64_ty.const_zero());
+        self.sp = Some(sp);
 
         // pc
         let pc = self.module.add_global(i64_ty, Some(AddressSpace::Generic), "pc");
         pc.set_initializer(&i64_ty.const_zero());
+        self.pc = Some(pc);
 
         // mem
         let i8_array_ty = self.context.i8_type().array_type(1024 * 32);
         let mem = self.module.add_global(i8_array_ty, Some(AddressSpace::Generic), "mem");
         mem.set_initializer(&i8_array_ty.const_zero());
+        self.mem = Some(mem);
 
         // code
-        let code = self.module.add_global(
-            self.context.i8_type().array_type(payload.len() as u32),
-            Some(AddressSpace::Generic),
-            if is_runtime { "code_runtime" } else{ "code" });
-        let payload = self.context.const_string(payload, false);
-        code.set_initializer(&payload);
-
-        self.stack = Some(stack);
-        self.sp = Some(sp);
-        self.pc = Some(pc);
-        self.mem = Some(mem);
-        self.code = Some(code);
+        if !is_runtime {
+            self.code_size = payload.len() as u64;
+            let code = self.module.add_global(
+                self.context.i8_type().array_type(payload.len() as u32),
+                Some(AddressSpace::Generic),
+                CODE_CTOR);
+            let payload = self.context.const_string(payload, false);
+            code.set_initializer(&payload);
+            self.code = Some(code);
+        }
     }
 
     pub fn build_function(&mut self, name: &str, is_runtime: bool) {
@@ -590,8 +612,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let name = "codesize";
                 warn!("{} is unaudited", name);
                 self.push_label(name, builder);
-                // let value = self.i256(value, sign_extend)
-                // TODO:
+                let sp = self.build_sp(builder);
+                self.build_push(builder, self.i256(self.code_size as usize).into(), sp);
             }
             Instruction::SignExtend => {
                 let name = "signextend";

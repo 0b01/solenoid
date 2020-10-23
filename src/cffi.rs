@@ -51,6 +51,14 @@ impl CFFIGenerator {
     }
 
     pub fn add_contract(&mut self, name: &str, contract: Contract) {
+        if let Some(ctor) = &contract.constructor {
+            self.add_abi_function(&Function {
+                name: "constructor".to_owned(),
+                inputs: ctor.inputs.clone(),
+                outputs: vec![],
+                constant: false,
+            }, 0);
+        }
         // abi formatters
         for (_name, funs) in &contract.functions {
             for (idx, fun) in funs.iter().enumerate() {

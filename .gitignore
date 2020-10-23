@@ -9,3 +9,5 @@ bindings.rs
 contracts.h
 /out
 test.ll
+example_contract/
+test_*/
