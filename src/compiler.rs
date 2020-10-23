@@ -14,11 +14,23 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
 
-use crate::ethabi::{Function, Constructor, Contract, param_type::ParamType::*, Param};
+use crate::ethabi::{Function, Constructor, Contract, param_type::ParamType::*, Param, ParamType};
 
 use log::{info, warn, error, debug};
 
 const CODE_CTOR: &'static str = "code_ctor";
+
+fn param_type_size(kind: &ParamType) -> u64 {
+    match kind {
+        Bool | Int(_) | Uint(_) | Address => 32,
+        crate::ethabi::ParamType::String | Array(_) | Bytes =>
+            panic!("solenoid does not support dynamic sized input yet"),
+        FixedBytes(_) => unimplemented!(),
+        FixedArray(ty, n) => (*n as u64) * param_type_size(ty),
+        Tuple(_) => unimplemented!(),
+    }
+}
+
 
 fn nibble2i256(vals: &[u8]) -> Vec<u64> {
     let mut ret = vec![];
@@ -48,6 +60,7 @@ pub struct Compiler<'a, 'ctx> {
     mem: Option<GlobalValue<'ctx>>,
     code: Option<GlobalValue<'ctx>>,
     code_size: u64,
+    param_size: u64,
     fun: Option<FunctionValue<'ctx>>,
     jumpbb: Option<BasicBlock<'ctx>>,
     errbb: Option<BasicBlock<'ctx>>,
@@ -126,7 +139,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         if is_ctor {
             let code = self.module.get_global(CODE_CTOR).unwrap().as_pointer_value();
             builder.build_memcpy(buf, 1, code, 1, self.i32(self.code_size)).unwrap();
-            len = builder.build_int_add(len, self.i32(self.code_size as u64), "len");
+            builder.build_store(len_ptr, self.i32(self.code_size + self.param_size));
+            len = builder.build_int_add(len, self.i32(self.code_size), "len");
         } else {
             // encode abi signature
             let sig = fun.short_signature();
@@ -168,7 +182,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
         }
 
-        builder.build_store(len_ptr, len);
+        if !is_ctor {
+            builder.build_store(len_ptr, len);
+        }
     }
 
     pub fn format_abi_fn_name(fun: &Function, idx: usize) -> String {
@@ -186,8 +202,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         context: &'ctx Context,
         module: &'a Module<'ctx>,
         debug: bool,
+        contract: Option<&Contract>,
     ) -> Self {
-        let compiler = Self {
+        let mut compiler = Self {
             context,
             i256_ty: context.custom_width_int_type(256),
             module,
@@ -197,6 +214,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             mem: None,
             code: None,
             code_size: 0,
+            param_size: 0,
             fun: None,
             jumpdests: BTreeMap::new(),
             jumpbb: None,
@@ -204,7 +222,21 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             label_stack: Rc::new(RefCell::new(Vec::new())),
             debug,
         };
+        // calculate partial size(params)
+        if let Some(contract) = contract {
+            if let Some(ctor) = &contract.constructor {
+                compiler.param_size = Self::calc_ctor_params_size(ctor);
+            }
+        }
         compiler
+    }
+
+    fn calc_ctor_params_size(ctor: &Constructor) -> u64 {
+        let mut ret = 0;
+        for param in &ctor.inputs {
+            ret += param_type_size(&param.kind);
+        } 
+        ret
     }
 
     pub fn compile(&mut self,
@@ -381,6 +413,14 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         // let readonly = self.context.create_string_attribute("readonly", "true");
         // dump_stack.add_attribute(inkwell::attributes::AttributeLoc::Function, readonly);
         dump_stack
+    }
+
+    fn code(&self, builder: &'a Builder<'ctx>, is_runtime: bool) -> PointerValue<'ctx> {
+        if !is_runtime {
+            self.fun.unwrap().get_nth_param(0).unwrap().into_pointer_value()
+        } else {
+            unsafe { builder.build_gep(self.code.unwrap().as_pointer_value(), &[self.i256(0)], "code") }
+        }
     }
 
     /// Build stack related global variables
@@ -613,7 +653,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 warn!("{} is unaudited", name);
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                self.build_push(builder, self.i256(self.code_size as usize).into(), sp);
+                self.build_push(builder, self.i256((self.code_size + self.param_size) as usize).into(), sp);
             }
             Instruction::SignExtend => {
                 let name = "signextend";
@@ -766,7 +806,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             Instruction::CodeCopy => {
                 let name = "codecopy";
-                warn!("callvalue is unaudited");
+                warn!("codecopy is unaudited");
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
                 let length = self.build_peek(builder, sp, 3, "length");
@@ -776,13 +816,13 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
                 let src = unsafe {
                     builder.build_in_bounds_gep(
-                        self.code.unwrap().as_pointer_value(),
-                        &[self.context.i8_type().const_zero(), offset],
+                        self.code(builder, is_runtime),
+                        &[offset],
                         "src") };
                 let dest = unsafe {
                     builder.build_in_bounds_gep(
                         self.mem.unwrap().as_pointer_value(),
-                        &[self.context.i8_type().const_zero(), dest_offset],
+                        &[self.i256(0), dest_offset],
                         "dest") };
 
                 // memory[destOffset:destOffset+length] = code[offset:offset+length];

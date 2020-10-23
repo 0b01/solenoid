@@ -27,7 +27,7 @@ fn compile_and_run(instrs: &[Instruction]) -> String {
     let instrs = evm::Disassembly::from_bytes(&bytes).unwrap().instructions;
     dbg!(&instrs);
 
-    let mut compiler = Compiler::new(&context, &module, false);
+    let mut compiler = Compiler::new(&context, &module, false, None);
     compiler.compile(&builder, &instrs, &bytes, "test", false);
     // compiler.dbg();
     module.print_to_file("./test.ll").unwrap();
