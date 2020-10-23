@@ -40,6 +40,8 @@ pub fn solc_compile(path: &PathBuf) -> HashMap<String, Contract> {
             .expect("solc command failed to start");
     let json = String::from_utf8_lossy(&cmd.stdout);
 
-    let contracts = serde_json::from_str::<Contracts>(&json).unwrap().contracts;
+    let contracts = serde_json::from_str::<Contracts>(&json)
+        .unwrap_or_else(|_| panic!("{}", &String::from_utf8_lossy(&cmd.stderr)))
+        .contracts;
     contracts
 }

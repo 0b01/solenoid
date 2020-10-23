@@ -14,7 +14,7 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
 
-use crate::ethabi::{Function, Constructor, Contract, param_type::ParamType::*, Param, ParamType};
+use crate::ethabi::{Function, Constructor, Contract, param_type::ParamType::*, ParamType};
 
 use log::{info, warn, error, debug};
 
@@ -23,11 +23,15 @@ const CODE_CTOR: &'static str = "code_ctor";
 fn param_type_size(kind: &ParamType) -> u64 {
     match kind {
         Bool | Int(_) | Uint(_) | Address => 32,
-        crate::ethabi::ParamType::String | Array(_) | Bytes =>
-            panic!("solenoid does not support dynamic sized input yet"),
-        FixedBytes(_) => unimplemented!(),
+        crate::ethabi::ParamType::String | Array(_) | Bytes => {
+            error!("solenoid does not support dynamic sized input yet");
+            0
+        }
         FixedArray(ty, n) => (*n as u64) * param_type_size(ty),
-        Tuple(_) => unimplemented!(),
+        Tuple(_) | FixedBytes(_) => {
+            error!("unimpl {:?}", kind);
+            0
+        }
     }
 }
 
@@ -177,7 +181,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     len = builder.build_int_add(len, self.i32(32), "len");
                 }
                 _ => {
-                    error!("unimpl");
+                    error!("unimpl {:?}", &param.kind);
                 }
             }
         }
