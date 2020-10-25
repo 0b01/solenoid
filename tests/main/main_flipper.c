@@ -38,6 +38,6 @@ int main() {
     // printf("\n");
 
     memset(tx, 0, 1024);
-    abi_constructor(tx, &sz, 0);
+    abi_flipper_constructor(tx, &sz, 0);
     run();
 }

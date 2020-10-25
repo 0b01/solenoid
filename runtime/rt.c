@@ -1,7 +1,9 @@
 #include "rt.h"
 
 void revert() {
+    #ifndef SOLANA
     printf("REVERT placeholder called");
+    #endif
 }
 
 /* overwrite key */
@@ -40,6 +42,7 @@ void sstore(i8* st, i8* key, i8* val) {
 }
 
 void dump_storage() {
+    #ifndef SOLANA
     for (int i = 0; i < occupancy * 64; i += 64) {
         for (int j = i + 31; j >= i; j--) {
             i8 k = storage[j];
@@ -53,9 +56,11 @@ void dump_storage() {
         printf("\n");
     }
     printf("\n");
+    #endif
 }
 
 void dump_stack(i8* label) {
+    #ifndef SOLANA
     printf("----%s----\nstack:(%ld)@%ld\n", label, sp, pc);
     int top = 10;
     int size = top > 0 ? top * 32 : (1024 * 256 / 8);
@@ -76,6 +81,7 @@ void dump_stack(i8* label) {
         printf("\n");
     }
     printf("\n");
+    #endif
 }
 
 /* sha3 - an implementation of Secure Hash Algorithm 3 (Keccak).
@@ -96,9 +102,6 @@ void dump_stack(i8* label) {
  * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
  * or FITNESS FOR A PARTICULAR PURPOSE.  Use this program  at  your own risk!
  */
-
-#include <string.h>
-#include <stdint.h>
 
 #define BLOCK_SIZE     ((1600 - 256 * 2) / 8)
 
@@ -381,11 +384,28 @@ void cpy(i8* a, i8* b) {
 }
 
 void prt(i8* a) {
+    #ifndef SOLANA
     for (int i = 31; i >= 0; i--) {
         printf("%02X", a[i]);
     }
+    #endif
 }
 
 void swap_endianness(i8* i) {
     inplace_reverse(i, 32);
+}
+
+void memcpy(void *dst, const void *src, int len) {
+  for (int i = 0; i < len; i++) {
+    *((uint8_t *)dst + i) = *((const uint8_t *)src + i);
+  }
+}
+
+void *memset(void *b, int c, size_t len) {
+  uint8_t *a = (uint8_t *) b;
+  while (len > 0) {
+    *a = c;
+    a++;
+    len--;
+  }
 }

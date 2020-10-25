@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 hex = { version = "2.0", package = "rustc-hex" }
-inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm8-0"] }
+inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm10-0"] }
 
 structopt = { version = "0.3", default-features = false }
 

@@ -3,7 +3,8 @@ OUT := build
 LLC := /mnt/c/Users/ricky/Desktop/llvm/build/bin/llc
 LLC_ARGS := -filetype=obj -relocation-model=pic -O3
 CC := clang
-ARGS := -fPIC -O3
+LLD := /mnt/c/Users/ricky/Desktop/llvm/build/bin/ld.lld
+ARGS := -fPIC -nostdlib -ffreestanding -fno-builtin -Wall --rtlib=compiler-rt -O3
 EXE := contracts.exe
 EXE_SOLANA := contracts.so
 
@@ -30,14 +31,14 @@ $(C_OBJECTS): $(OUT)/%.o : $(SRC)/%.c
 	$(CC) $< $(ARGS) -c -o $@
 
 $(C_OBJECTS_SOLANA): $(OUT)/%.bpf.o : $(SRC)/%.c
-	$(CC) $< $(ARGS) -emit-llvm  -c -o $(OUT)/$*.ll
+	$(CC) $< $(ARGS) -emit-llvm -D SOLANA -c -o $(OUT)/$*.ll
 	$(LLC) $(OUT)/$*.ll $(LLC_ARGS) -march=bpf -o $@
 
 $(EXE): $(LLO) $(C_OBJECTS)
 	$(CC) $(LLO) $(C_OBJECTS) -o $(OUT)/$(EXE)
 
 $(EXE_SOLANA): $(LLO_SOLANA) $(C_OBJECTS_SOLANA)
-	$(CC) $(LLO_SOLANA) $(C_OBJECTS_SOLANA) -o $(OUT)/$(EXE_SOLANA)
+	$(LLD) $(LLO_SOLANA) $(C_OBJECTS_SOLANA) -o build/contracts.so
 
 clean:
 	rm -R $(OUT)
@@ -45,4 +46,4 @@ clean:
 run: all
 	./$(OUT)/$(EXE)
 
-solana: $(EXE_SOLANA)
+solana: $(OUT) $(EXE_SOLANA)

@@ -63,6 +63,7 @@ pub struct Compiler<'a, 'ctx> {
     stack: Option<GlobalValue<'ctx>>,
     mem: Option<GlobalValue<'ctx>>,
     code: Option<GlobalValue<'ctx>>,
+    code_ptr: Option<GlobalValue<'ctx>>,
     code_size: u64,
     fun: Option<FunctionValue<'ctx>>,
     jumpbb: Option<BasicBlock<'ctx>>,
@@ -224,6 +225,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             stack: None,
             mem: None,
             code: None,
+            code_ptr: None,
             code_size: 0,
             fun: None,
             jumpdests: BTreeMap::new(),
@@ -288,6 +290,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         // position to main
         builder.position_at_end(mainbb);
+
+        if is_runtime {
+            let code_ptr = self.code_ptr.unwrap().as_pointer_value();
+            let value = self.fun.unwrap().get_nth_param(0).unwrap().into_pointer_value();
+            builder.build_store(code_ptr, value);
+        }
 
         for (offset, instr) in instrs {
             if Option::None == self.build_instr(*offset, instr, builder, is_runtime) {
@@ -440,7 +448,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         if !is_runtime {
             self.fun.unwrap().get_nth_param(0).unwrap().into_pointer_value()
         } else {
-            unsafe { builder.build_gep(self.code.unwrap().as_pointer_value(), &[self.i256(0)], "code") }
+            self.code_ptr.unwrap().as_pointer_value()
         }
     }
 
@@ -471,16 +479,22 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         self.mem = Some(mem);
 
         // code
-        if !is_runtime {
-            self.code_size = payload.len() as u64;
-            let code = self.module.add_global(
-                self.context.i8_type().array_type(payload.len() as u32),
-                Some(AddressSpace::Generic),
-                CODE_CTOR);
-            let payload = self.context.const_string(payload, false);
-            code.set_initializer(&payload);
-            self.code = Some(code);
-        }
+        self.code_size = payload.len() as u64;
+        let code = self.module.add_global(
+            self.context.i8_type().array_type(payload.len() as u32),
+            Some(AddressSpace::Generic),
+            CODE_CTOR);
+        let payload = self.context.const_string(payload, false);
+        code.set_initializer(&payload);
+        self.code = Some(code);
+
+        // code_ptr
+        let code_ptr = self.module.add_global(
+            self.context.i8_type().ptr_type(AddressSpace::Generic),
+            Some(AddressSpace::Generic),
+            "code_ptr");
+        code_ptr.set_initializer(&self.context.i8_type().ptr_type(AddressSpace::Generic).const_null());
+        self.code_ptr = Some(code_ptr);
     }
 
     pub fn build_function(&mut self, name: &str, is_runtime: bool) {
@@ -681,11 +695,15 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::CodeSize => {
                 let name = "codesize";
                 warn!("{} is unaudited", name);
-                self.push_label(name, builder);
-                let sp = self.build_sp(builder);
-                let int_value = self.fun.unwrap().get_nth_param(1).unwrap().into_int_value();
-                let value = builder.build_int_z_extend(int_value, self.i256_ty, "value").into();
-                self.build_push(builder, value, sp);
+                if is_runtime {
+                    unimplemented!()
+                } else {
+                    self.push_label(name, builder);
+                    let sp = self.build_sp(builder);
+                    let int_value = self.fun.unwrap().get_nth_param(1).unwrap().into_int_value();
+                    let value = builder.build_int_z_extend(int_value, self.i256_ty, "value").into();
+                    self.build_push(builder, value, sp);
+                }
             }
             Instruction::SignExtend => {
                 let name = "signextend";

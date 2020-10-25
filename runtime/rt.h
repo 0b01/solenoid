@@ -1,10 +1,15 @@
 #ifndef RT_H
 #define RT_H
-typedef unsigned char i8;
-
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#ifdef SOLANA
+#include "../../../solana/sdk/bpf/c/inc/solana_sdk.h"
+#endif
+
+typedef unsigned char i8;
+
 void inplace_reverse(i8* str, uint16_t len);
 i8* pad_int(i8* out, int x);
 
@@ -13,6 +18,8 @@ void cpy(i8* a, i8* b);
 void prt(i8* a);
 void swap_endianness(i8* i);
 
+void memcpy(void *dst, const void *src, int len);
+void *memset(void *b, int c, size_t len);
 
 static int occupancy = 1;
 i8 storage[1024*64];
@@ -79,6 +86,7 @@ void keccak_update(SHA3_CTX *ctx, const unsigned char *msg, uint16_t size);
 void keccak_final(SHA3_CTX *ctx, unsigned char* result);
 
 void keccak256(const unsigned char *msg, uint16_t size, unsigned char* result);
+
 
 
 #ifdef __cplusplus
