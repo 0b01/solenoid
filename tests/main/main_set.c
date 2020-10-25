@@ -19,7 +19,7 @@ int main() {
     SimpleStorage_constructor(tx_ctor, sz_ctor, &offset, &length, (i8*)storage, caller);
     SimpleStorage_runtime(tx, sz, &offset, &length, (i8*)storage, caller);
     SimpleStorage_runtime(tx2, sz2, &offset, &length, (i8*)storage, caller);
-    prt(mem+offset); printf("\n");
+    prt(SimpleStorage_mem+offset); printf("\n");
     SimpleStorage_runtime(tx, sz, &offset, &length, (i8*)storage, caller);
     SimpleStorage_runtime(tx, sz, &offset, &length, (i8*)storage, caller);
     SimpleStorage_runtime(tx, sz, &offset, &length, (i8*)storage, caller);

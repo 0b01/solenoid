@@ -22,7 +22,7 @@ void run() {
 
     flipper_runtime(tx3, sz3, &offset, &length, (i8*)storage, caller);
     prt(storage+32); printf("\n");
-    prt(mem+offset); printf("\n");
+    prt(flipper_mem+offset); printf("\n");
 
     flipper_runtime(tx2, sz2, &offset, &length, (i8*)storage, caller);
     prt(storage+32); printf("\n");
