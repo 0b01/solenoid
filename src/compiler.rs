@@ -137,6 +137,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     fn build_abi_conversion(&self, builder: &'a Builder<'ctx>, fun: &Function, llvm_fun: FunctionValue<'ctx>, is_ctor: bool) {
         let buf = llvm_fun.get_nth_param(0).unwrap().into_pointer_value();
         let len_ptr = llvm_fun.get_nth_param(1).unwrap().into_pointer_value();
+        builder.build_store(len_ptr, self.i32(0));
         let mut len  = builder.build_load(len_ptr, "len").into_int_value();
 
         if is_ctor {
@@ -195,9 +196,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
         }
 
-        if !is_ctor {
-            builder.build_store(len_ptr, len);
-        }
+        builder.build_store(len_ptr, len);
     }
 
     pub fn format_abi_fn_name(contract_name: &str, fun: &Function, idx: usize) -> String {
@@ -749,7 +748,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let val_ptr_i8 = self.build_tos_ptr(builder, 2);
 
                 builder.build_call(self.sstore(), &[self.storage_ptr().into(), key_ptr_i8.into(), val_ptr_i8.into()], "sstore");
-                self.build_decr(builder, sp, 1);
+                self.build_decr(builder, sp, 2);
             }
             Instruction::Sha3 => {
                 let name = "sha3";

@@ -4,7 +4,7 @@ export LLVM_SYS_100_STRICT_VERSIONING=true
 export RUST_LOG=bindgen::*=error,libsolenoid=debug
 
 OUTDIR := example_contract
-CONTRACT := tests/contracts/set.sol
+CONTRACT := tests/contracts/flipper.sol
 
 run:
 	cargo run -- --input $(CONTRACT) -o $(OUTDIR)

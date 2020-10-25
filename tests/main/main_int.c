@@ -1,6 +1,6 @@
 #include "../../runtime/rt.h"
 
-extern void test_constructor(i8*, long, long*, long*, i8*);
+extern void test_constructor(i8*, long, long*, long*, i8*, i8*);
 int main() {
     i8 caller[32] = {0}; 
     long offset = 0;
