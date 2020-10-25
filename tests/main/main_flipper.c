@@ -29,9 +29,9 @@ void run() {
 
 int main() {
 
-    abi_constructor(tx, &sz, 1);
-    abi_flip(tx2, &sz2);
-    abi_get(tx3, &sz3);
+    abi_flipper_constructor(tx, &sz, 1);
+    abi_flipper_flip(tx2, &sz2);
+    abi_flipper_get(tx3, &sz3);
     run();
 
     // printf("\n");

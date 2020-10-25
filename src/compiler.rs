@@ -64,7 +64,6 @@ pub struct Compiler<'a, 'ctx> {
     mem: Option<GlobalValue<'ctx>>,
     code: Option<GlobalValue<'ctx>>,
     code_size: u64,
-    param_size: u64,
     fun: Option<FunctionValue<'ctx>>,
     jumpbb: Option<BasicBlock<'ctx>>,
     errbb: Option<BasicBlock<'ctx>>,
@@ -74,25 +73,24 @@ pub struct Compiler<'a, 'ctx> {
 }
 
 impl<'a, 'ctx> Compiler<'a, 'ctx> {
-    pub fn compile_abi(&self, builder: &'a Builder<'ctx>, contract: &Contract) {
-        if let Some(ctor) = &contract.constructor {
-            let fun = Function {
-                name: "constructor".to_owned(),
-                inputs: ctor.inputs.clone(),
-                outputs: vec![],
-                constant: false,
-            };
-            self.compile_abi_function(builder, &fun, 0, true);
-        }
+    pub fn compile_abi(&self, builder: &'a Builder<'ctx>, contract: &Contract, contract_name: &str) {
+        let inputs = contract.constructor.as_ref().map(|i|i.inputs.to_owned()).unwrap_or(vec![]);
+        let fun = Function {
+            name: "constructor".to_owned(),
+            inputs,
+            outputs: vec![],
+            constant: false,
+        };
+        self.compile_abi_function(builder, contract_name, &fun, 0, true);
         for (_name, funs) in &contract.functions {
             for (idx, fun) in funs.iter().enumerate() {
-                self.compile_abi_function(builder, fun, idx, false);
+                self.compile_abi_function(builder, contract_name, fun, idx, false);
             }
         }
     }
     
     /// void get(char* out_buf, int* buf_length, params..)
-    fn compile_abi_function(&self, builder: &'a Builder<'ctx>, fun: &Function, idx: usize, is_ctor: bool) {
+    fn compile_abi_function(&self, builder: &'a Builder<'ctx>, contract_name: &str, fun: &Function, idx: usize, is_ctor: bool) {
         let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
         let buf_len_ty = self.context.i32_type().ptr_type(AddressSpace::Generic).into();
         let mut param_types: Vec<BasicTypeEnum<'ctx>> = vec![char_ptr_ty, buf_len_ty];
@@ -125,7 +123,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             param_types.push(ty);
         }
 
-        let fun_name = Self::format_abi_fn_name(fun, idx);
+        let fun_name = Self::format_abi_fn_name(contract_name, fun, idx);
         let fn_ty = self.context.void_type().fn_type(param_types.as_slice(),false);
         let llvm_fun = self.module.add_function(&fun_name, fn_ty, None);
         let basic_block = self.context.append_basic_block(llvm_fun, "entry");
@@ -143,7 +141,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         if is_ctor {
             let code = self.module.get_global(CODE_CTOR).unwrap().as_pointer_value();
             builder.build_memcpy(buf, 1, code, 1, self.i32(self.code_size)).unwrap();
-            builder.build_store(len_ptr, self.i32(self.code_size + self.param_size));
+            builder.build_store(len_ptr, self.i32(self.code_size));
             len = builder.build_int_add(len, self.i32(self.code_size), "len");
         } else {
             // encode abi signature
@@ -191,11 +189,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
     }
 
-    pub fn format_abi_fn_name(fun: &Function, idx: usize) -> String {
+    pub fn format_abi_fn_name(contract_name: &str, fun: &Function, idx: usize) -> String {
         if idx == 0 {
-            format!("abi_{}", fun.name)
+            format!("abi_{}_{}", contract_name, fun.name)
         } else {
-            format!("abi_{}_{}", fun.name, idx)
+            format!("abi_{}_{}_{}", contract_name, fun.name, idx)
         }
     }
 }
@@ -206,7 +204,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         context: &'ctx Context,
         module: &'a Module<'ctx>,
         debug: bool,
-        contract: Option<&Contract>,
     ) -> Self {
         let mut compiler = Self {
             context,
@@ -218,7 +215,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             mem: None,
             code: None,
             code_size: 0,
-            param_size: 0,
             fun: None,
             jumpdests: BTreeMap::new(),
             jumpbb: None,
@@ -226,12 +222,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             label_stack: Rc::new(RefCell::new(Vec::new())),
             debug,
         };
-        // calculate partial size(params)
-        if let Some(contract) = contract {
-            if let Some(ctor) = &contract.constructor {
-                compiler.param_size = Self::calc_ctor_params_size(ctor);
-            }
-        }
         compiler
     }
 
@@ -657,7 +647,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 warn!("{} is unaudited", name);
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                self.build_push(builder, self.i256((self.code_size + self.param_size) as usize).into(), sp);
+                let value = self.fun.unwrap().get_nth_param(1).unwrap().into();
+                self.build_push(builder, value, sp);
             }
             Instruction::SignExtend => {
                 let name = "signextend";

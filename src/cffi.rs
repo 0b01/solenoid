@@ -50,27 +50,26 @@ impl CFFIGenerator {
         self.add_stub(&fn_name, &params);
     }
 
-    pub fn add_contract(&mut self, name: &str, contract: Contract) {
-        if let Some(ctor) = &contract.constructor {
-            self.add_abi_function(&Function {
-                name: "constructor".to_owned(),
-                inputs: ctor.inputs.clone(),
-                outputs: vec![],
-                constant: false,
-            }, 0);
-        }
+    pub fn add_contract(&mut self, contract_name: &str, contract: Contract) {
+        let inputs = contract.constructor.as_ref().map(|i|i.inputs.clone()).unwrap_or(vec![]);
+        self.add_abi_function(contract_name, &Function {
+            name: "constructor".to_owned(),
+            inputs,
+            outputs: vec![],
+            constant: false,
+        }, 0);
         // abi formatters
         for (_name, funs) in &contract.functions {
             for (idx, fun) in funs.iter().enumerate() {
-                self.add_abi_function(fun, idx);
+                self.add_abi_function(contract_name, fun, idx);
             }
         }
-        self.add_constructor(name);
-        self.add_runtime(name);
+        self.add_constructor(contract_name);
+        self.add_runtime(contract_name);
     }
 
-    pub fn add_abi_function(&mut self, fun: &Function, idx: usize) {
-        let fn_name = Compiler::format_abi_fn_name(fun, idx);
+    pub fn add_abi_function(&mut self, contract_name: &str, fun: &Function, idx: usize) {
+        let fn_name = Compiler::format_abi_fn_name(contract_name, fun, idx);
         let mut params = Vec::new();
         params.push("i8* tx".to_owned());
         params.push("int* tx_size".to_owned());

@@ -4,7 +4,7 @@ export LLVM_SYS_80_STRICT_VERSIONING=true
 export RUST_LOG=bindgen::*=error,libsolenoid=debug
 
 OUTDIR := example_contract
-CONTRACT := tests/contracts/ballot.sol
+CONTRACT := tests/contracts/set.sol
 
 run:
 	cargo run -- --input $(CONTRACT) -o $(OUTDIR)

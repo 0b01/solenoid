@@ -48,7 +48,7 @@ fn main() {
         let bytes: Vec<u8> = hex_opcodes.from_hex().expect("Invalid Hex String");
         let instrs =  Disassembly::from_bytes(&bytes).unwrap().instructions;
 
-        let mut compiler = Compiler::new(&context, &module, false, None);
+        let mut compiler = Compiler::new(&context, &module, false);
         compiler.compile(&builder, &instrs, &bytes, "test", false);
         // compiler.dbg();
         module.print_to_file("out.ll").unwrap();
@@ -57,8 +57,8 @@ fn main() {
         for (name, contract) in &contracts {
             let abi = libsolenoid::ethabi::Contract::load(contract.abi.as_bytes()).unwrap();
 
-            let name = name.split(":").last().unwrap();
-            let mut compiler = Compiler::new(&context, &module, opt.debug, Some(&abi));
+            let contract_name = name.split(":").last().unwrap();
+            let mut compiler = Compiler::new(&context, &module, opt.debug);
             let (ctor_bytes, rt_bytes, ctor_opcodes, rt_opcodes) = contract.parse();
 
             debug!("Constructor instrs: {:#?}", ctor_opcodes);
@@ -68,15 +68,15 @@ fn main() {
                 continue;
             }
 
-            info!("Compiling {} constructor", name);
-            compiler.compile(&builder, &ctor_opcodes, &ctor_bytes, name, false);
+            info!("Compiling {} constructor", contract_name);
+            compiler.compile(&builder, &ctor_opcodes, &ctor_bytes, contract_name, false);
 
-            info!("Compiling {} runtime", name);
-            compiler.compile(&builder, &rt_opcodes, &rt_bytes, name, true);
+            info!("Compiling {} runtime", contract_name);
+            compiler.compile(&builder, &rt_opcodes, &rt_bytes, contract_name, true);
 
-            compiler.compile_abi(&builder, &abi);
+            compiler.compile_abi(&builder, &abi, contract_name);
 
-            cffigen.add_contract(name, abi);
+            cffigen.add_contract(contract_name, abi);
         }
 
         if opt.print_opcodes {
