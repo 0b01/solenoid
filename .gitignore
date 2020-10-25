@@ -11,3 +11,4 @@ contracts.h
 test.ll
 example_contract/
 test_*/
+bin/

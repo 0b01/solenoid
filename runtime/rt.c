@@ -59,7 +59,7 @@ void dump_storage() {
     #endif
 }
 
-void dump_stack(i8* label) {
+void dump_stack(i8* label, int sp, int pc, i8* stack) {
     #ifndef SOLANA
     printf("----%s----\nstack:(%ld)@%ld\n", label, sp, pc);
     int top = 10;

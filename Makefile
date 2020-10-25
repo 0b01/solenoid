@@ -4,7 +4,7 @@ export LLVM_SYS_100_STRICT_VERSIONING=true
 export RUST_LOG=bindgen::*=error,libsolenoid=debug
 
 OUTDIR := example_contract
-CONTRACT := tests/contracts/flipper.sol
+CONTRACT := tests/contracts/safemath.sol
 
 run:
 	cargo run -- --input $(CONTRACT) -o $(OUTDIR)
@@ -14,6 +14,9 @@ debug:
 
 test:
 	RUST_TEST_THREADS=1 RUST_BACKTRACE=1 cargo test -- --nocapture
+
+test-contracts:
+	RUST_TEST_THREADS=1 RUST_BACKTRACE=1 cargo test contract -- --nocapture
 
 clean:
 	rm -R *.o a.out *.ll *.s $(OUTDIR) test_*

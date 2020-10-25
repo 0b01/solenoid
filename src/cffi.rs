@@ -169,7 +169,6 @@ impl CFFIGenerator {
             "rt.c",
             "rt.h",
             "arith.ll",
-            "main.c",
         );
     }
 }

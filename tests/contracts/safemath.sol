@@ -9,8 +9,13 @@ contract TestSafeMath {
     constructor() {
         a = 0xAAAA;
     }
+
     function sub() public {
         a = a.sub(1);
+    }
+
+    function get() public view returns (uint256) {
+        return a;
     }
 }
 

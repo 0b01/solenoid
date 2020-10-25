@@ -289,8 +289,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         // position to main
         builder.position_at_end(mainbb);
+        // set sp = 0, TODO: is it valid in cross contract calls?
+        // builder.build_store(self.sp.unwrap().as_pointer_value(), self.i64(0));
 
-        if is_runtime {
+        // set code_ptr for runtime
+        if !is_runtime {
             let code_ptr = self.code_ptr.unwrap().as_pointer_value();
             let value = self.fun.unwrap().get_nth_param(0).unwrap().into_pointer_value();
             builder.build_store(code_ptr, value);
@@ -434,7 +437,8 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         }
 
         let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
-        let fn_ty = self.context.void_type().fn_type(&[char_ptr_ty],false);
+        let int_ty = self.context.i64_type().into();
+        let fn_ty = self.context.void_type().fn_type(&[char_ptr_ty, int_ty, int_ty, char_ptr_ty],false);
         let dump_stack = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
 
         // TODO:
@@ -552,7 +556,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 .as_pointer_value()
                 .const_cast(
                     self.context.i8_type().ptr_type(AddressSpace::Generic)) };
-        builder.build_call(self.dump_stack(), &[s.into()], "dump");
+        let sp = builder.build_load(self.sp.unwrap().as_pointer_value(), "sp");
+        let pc = builder.build_load(self.pc.unwrap().as_pointer_value(), "pc");
+        let stack = unsafe { builder.build_gep(self.stack.unwrap().as_pointer_value(),&[self.i32(0), self.i32(0)], "stack") };
+        let stack = builder.build_pointer_cast(stack, self.context.i8_type().ptr_type(AddressSpace::Generic), "stack");
+        builder.build_call(self.dump_stack(), &[s.into(), sp, pc, stack.into()], "dump");
     }
 
     fn build_sp(&self, builder: &'a Builder<'ctx>) -> IntValue<'ctx> {

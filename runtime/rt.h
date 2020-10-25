@@ -32,7 +32,7 @@ void revert();
 void sload(i8* st, i8* key);
 void sstore(i8* st, i8* key, i8* val);
 void dump_storage();
-void dump_stack(i8* label);
+void dump_stack(i8* label, int sp, int pc, i8* stack);
 
 void udiv256(i8*, i8*, i8*);
 void sdiv256(i8*, i8*, i8*);
