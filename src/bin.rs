@@ -42,7 +42,7 @@ fn main() {
     let context = Context::create();
     let module = context.create_module("contracts");
     let builder = context.create_builder();
-    let mut cffigen = CFFIGenerator::new();
+    let mut ffi = CFFIGenerator::new();
 
     if let Some(hex_opcodes) = opt.opcodes {
         let bytes: Vec<u8> = hex_opcodes.from_hex().expect("Invalid Hex String");
@@ -58,6 +58,7 @@ fn main() {
             let abi = libsolenoid::ethabi::Contract::load(contract.abi.as_bytes()).unwrap();
 
             let contract_name = name.split(":").last().unwrap();
+            ffi.add_contract_name(contract_name);
             let mut compiler = Compiler::new(&context, &module, opt.debug);
             let (ctor_bytes, rt_bytes, ctor_opcodes, rt_opcodes) = contract.parse();
 
@@ -76,14 +77,14 @@ fn main() {
 
             compiler.compile_abi(&builder, &abi, contract_name);
 
-            cffigen.add_contract(contract_name, abi);
+            ffi.add_contract(contract_name, abi);
         }
 
         if opt.print_opcodes {
             return;
         }
 
-        cffigen.generate(&outdir, &module.print_to_string().to_string());
+        ffi.generate(&outdir, &module.print_to_string().to_string());
     } else {
         error!("Nothing to do. Use --help to show instructions.");
     }

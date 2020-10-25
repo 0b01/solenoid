@@ -23,16 +23,12 @@ void *memset(void *b, int c, size_t len);
 
 static int occupancy = 1;
 i8 storage[1024*64];
-extern long sp;
-extern long pc;
-extern i8 stack[];
-extern i8 mem[];
 
 void revert();
 void sload(i8* st, i8* key);
 void sstore(i8* st, i8* key, i8* val);
 void dump_storage();
-void dump_stack(i8* label, int sp, int pc, i8* stack);
+void dump_stack(i8* label, int sp, int pc, i8* stack, i8* mem);
 
 void udiv256(i8*, i8*, i8*);
 void sdiv256(i8*, i8*, i8*);

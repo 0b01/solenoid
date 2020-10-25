@@ -18,8 +18,6 @@ use crate::ethabi::{Function, Constructor, Contract, param_type::ParamType::*, P
 
 use log::{info, warn, error, debug};
 
-const CODE_CTOR: &'static str = "code_ctor";
-
 fn param_type_size(kind: &ParamType) -> u64 {
     match kind {
         Bool | Int(_) | Uint(_) | Address => 32,
@@ -130,18 +128,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let basic_block = self.context.append_basic_block(llvm_fun, "entry");
 
         builder.position_at_end(basic_block);
-        self.build_abi_conversion(builder, fun, llvm_fun, is_ctor);
+        self.build_abi_conversion(builder, contract_name, fun, llvm_fun, is_ctor);
         builder.build_return(None);
     }
 
-    fn build_abi_conversion(&self, builder: &'a Builder<'ctx>, fun: &Function, llvm_fun: FunctionValue<'ctx>, is_ctor: bool) {
+    fn build_abi_conversion(&self, builder: &'a Builder<'ctx>, contract_name: &str, fun: &Function, llvm_fun: FunctionValue<'ctx>, is_ctor: bool) {
         let buf = llvm_fun.get_nth_param(0).unwrap().into_pointer_value();
         let len_ptr = llvm_fun.get_nth_param(1).unwrap().into_pointer_value();
         builder.build_store(len_ptr, self.i32(0));
         let mut len  = builder.build_load(len_ptr, "len").into_int_value();
 
         if is_ctor {
-            let code = self.module.get_global(CODE_CTOR).unwrap().as_pointer_value();
+            let code = self.module.get_global(&format!("{}_code", contract_name)).unwrap().as_pointer_value();
             builder.build_memcpy(buf, 1, code, 1, self.i32(self.code_size)).unwrap();
             builder.build_store(len_ptr, self.i32(self.code_size));
             len = builder.build_int_add(len, self.i32(self.code_size), "len");
@@ -438,7 +436,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         let char_ptr_ty = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
         let int_ty = self.context.i64_type().into();
-        let fn_ty = self.context.void_type().fn_type(&[char_ptr_ty, int_ty, int_ty, char_ptr_ty],false);
+        let fn_ty = self.context.void_type().fn_type(&[char_ptr_ty, int_ty, int_ty, char_ptr_ty, char_ptr_ty],false);
         let dump_stack = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
 
         // TODO:
@@ -456,28 +454,28 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
     }
 
     /// Build stack related global variables
-    fn build_globals(&mut self, payload: &[u8], _name: &str, is_runtime: bool) {
+    fn build_globals(&mut self, payload: &[u8], contract_name: &str, is_runtime: bool) {
         let i64_ty = self.context.i64_type();
         let i256_arr_ty = self.i256_ty.array_type(1024); // .zero (256 / 8 * size)
 
         // stack
-        let stack = self.module.add_global(i256_arr_ty, Some(AddressSpace::Generic), "stack");
+        let stack = self.module.add_global(i256_arr_ty, Some(AddressSpace::Generic), &format!("{}_stack", contract_name));
         stack.set_initializer(&i256_arr_ty.const_zero());
         self.stack = Some(stack);
 
         // sp
-        let sp = self.module.add_global(i64_ty, Some(AddressSpace::Generic), "sp");
+        let sp = self.module.add_global(i64_ty, Some(AddressSpace::Generic), &format!("{}_sp", contract_name));
         sp.set_initializer(&i64_ty.const_zero());
         self.sp = Some(sp);
 
         // pc
-        let pc = self.module.add_global(i64_ty, Some(AddressSpace::Generic), "pc");
+        let pc = self.module.add_global(i64_ty, Some(AddressSpace::Generic), &format!("{}_pc", contract_name));
         pc.set_initializer(&i64_ty.const_zero());
         self.pc = Some(pc);
 
         // mem
         let i8_array_ty = self.context.i8_type().array_type(1024 * 32);
-        let mem = self.module.add_global(i8_array_ty, Some(AddressSpace::Generic), "mem");
+        let mem = self.module.add_global(i8_array_ty, Some(AddressSpace::Generic), &format!("{}_mem", contract_name));
         mem.set_initializer(&i8_array_ty.const_zero());
         self.mem = Some(mem);
 
@@ -486,7 +484,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let code = self.module.add_global(
             self.context.i8_type().array_type(payload.len() as u32),
             Some(AddressSpace::Generic),
-            CODE_CTOR);
+            &format!("{}_code", contract_name));
         let payload = self.context.const_string(payload, false);
         code.set_initializer(&payload);
         self.code = Some(code);
@@ -495,7 +493,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let code_ptr = self.module.add_global(
             self.context.i8_type().ptr_type(AddressSpace::Generic),
             Some(AddressSpace::Generic),
-            "code_ptr");
+            &format!("{}_code_ptr", contract_name));
         code_ptr.set_initializer(&self.context.i8_type().ptr_type(AddressSpace::Generic).const_null());
         self.code_ptr = Some(code_ptr);
     }
@@ -560,7 +558,9 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let pc = builder.build_load(self.pc.unwrap().as_pointer_value(), "pc");
         let stack = unsafe { builder.build_gep(self.stack.unwrap().as_pointer_value(),&[self.i32(0), self.i32(0)], "stack") };
         let stack = builder.build_pointer_cast(stack, self.context.i8_type().ptr_type(AddressSpace::Generic), "stack");
-        builder.build_call(self.dump_stack(), &[s.into(), sp, pc, stack.into()], "dump");
+        let mem = unsafe { builder.build_gep(self.mem.unwrap().as_pointer_value(),&[self.i32(0), self.i32(0)], "mem") };
+        let mem = builder.build_pointer_cast(mem, self.context.i8_type().ptr_type(AddressSpace::Generic), "mem");
+        builder.build_call(self.dump_stack(), &[s.into(), sp, pc, stack.into(), mem.into()], "dump");
     }
 
     fn build_sp(&self, builder: &'a Builder<'ctx>) -> IntValue<'ctx> {
@@ -769,7 +769,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let length = builder.build_int_truncate_or_bit_cast(length, self.context.i16_type(), "length");
 
                 let mem = self.mem.unwrap().as_pointer_value();
-                let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.context.i64_type().const_zero(), offset], "stack") };
+                let addr = unsafe { builder.build_in_bounds_gep(mem, &[self.context.i64_type().const_zero(), offset], "mem") };
                 let addr = builder.build_pointer_cast(addr, self.context.i8_type().ptr_type(AddressSpace::Generic), "addr");
 
                 let stack = self.stack.unwrap().as_pointer_value();
