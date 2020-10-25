@@ -21,6 +21,7 @@ extern long pc;
 extern i8 stack[];
 extern i8 mem[];
 
+void revert();
 void sload(i8* st, i8* key);
 void sstore(i8* st, i8* key, i8* val);
 void dump_storage();

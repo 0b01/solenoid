@@ -9,7 +9,7 @@
 //! Contract event.
 
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use tiny_keccak::keccak256;
 
 use crate::ethabi::{
@@ -158,7 +158,7 @@ impl Event {
 
 		let data_named_tokens = data_params.into_iter().map(|p| p.name).zip(data_tokens.into_iter());
 
-		let named_tokens = topics_named_tokens.chain(data_named_tokens).collect::<HashMap<String, Token>>();
+		let named_tokens = topics_named_tokens.chain(data_named_tokens).collect::<BTreeMap<String, Token>>();
 
 		let decoded_params = self
 			.params_names()

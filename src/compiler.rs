@@ -178,6 +178,16 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                     builder.build_store(ptr, value);
                     len = builder.build_int_add(len, self.i32(32), "len");
                 }
+                Address => {
+                    let x = x.into_pointer_value();
+                    let val_ptr = builder.build_pointer_cast(x, self.i256_ty.ptr_type(AddressSpace::Generic), "ptr");
+                    let value = builder.build_load(val_ptr, "value").into_int_value();
+                    let ptr = unsafe { builder.build_gep(buf, &[len], "ptr") };
+                    let value = builder.build_int_z_extend(value, self.i256_ty, &param.name);
+                    let ptr = builder.build_pointer_cast(ptr, self.i256_ty.ptr_type(AddressSpace::Generic), "ptr");
+                    builder.build_store(ptr, value);
+                    len = builder.build_int_add(len, self.i32(32), "len");
+                }
                 _ => {
                     error!("unimpl {:?}", &param.kind);
                 }
@@ -205,7 +215,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         module: &'a Module<'ctx>,
         debug: bool,
     ) -> Self {
-        let mut compiler = Self {
+        let compiler = Self {
             context,
             i256_ty: context.custom_width_int_type(256),
             module,
@@ -274,7 +284,7 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         // err ret
         builder.position_at_end(self.errbb.unwrap());
-        builder.build_return(None);
+        self.build_errbb(builder);
 
         // position to main
         builder.position_at_end(mainbb);
@@ -285,6 +295,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 break;
             }
         }
+        builder.build_return(None);
+    }
+
+    fn build_errbb(&self, builder: &'a Builder<'ctx>) {
+        builder.build_call(self.revert(), &[], "revert");
         builder.build_return(None);
     }
 
@@ -352,6 +367,18 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
 
         sha3
     }
+
+    fn revert(&self) -> FunctionValue<'ctx> {
+        let name = "revert";
+        if let Some(f) = self.module.get_function(&name) {
+            return f;
+        }
+
+        let fn_ty = self.context.void_type().fn_type(&[],false);
+        let revert = self.module.add_function(name, fn_ty, Some(inkwell::module::Linkage::External));
+        revert
+    }
+
 
     fn sstore(&self) -> FunctionValue<'ctx> {
         let name = "sstore";
@@ -462,9 +489,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         let ret_len = self.context.i64_type().ptr_type(AddressSpace::Generic).into();
         let msg = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
         let storage = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
+        let caller = self.context.i8_type().ptr_type(AddressSpace::Generic).into();
         let fn_type = self.context.void_type()
             .fn_type(
-                &[msg, msg_len, ret_offset, ret_len, storage],
+                &[msg, msg_len, ret_offset, ret_len, storage, caller],
                 false
             );
         let fn_name = Self::format_fn_name(name, is_runtime);
@@ -615,8 +643,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
         match instr {
             Instruction::Addr |
             Instruction::Balance |
-            Instruction::Origin |
-            Instruction::Caller |
             Instruction::CallDataCopy |
             Instruction::GasPrice |
             Instruction::ChainId |
@@ -642,12 +668,23 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             Instruction::StaticCall => {
                 error!("unimpl: {:?}", instr);
             }
+            Instruction::Origin |
+            Instruction::Caller => {
+                let name = "caller";
+                self.push_label(name, builder);
+                let sp = self.build_sp(builder);
+                let addr = self.fun.unwrap().get_nth_param(5).unwrap().into_pointer_value();
+                let addr = builder.build_pointer_cast(addr, self.i256_ty.ptr_type(AddressSpace::Generic), "caller");
+                let value = builder.build_load(addr, "caller").into();
+                self.build_push(builder, value, sp);
+            }
             Instruction::CodeSize => {
                 let name = "codesize";
                 warn!("{} is unaudited", name);
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let value = self.fun.unwrap().get_nth_param(1).unwrap().into();
+                let int_value = self.fun.unwrap().get_nth_param(1).unwrap().into_int_value();
+                let value = builder.build_int_z_extend(int_value, self.i256_ty, "value").into();
                 self.build_push(builder, value, sp);
             }
             Instruction::SignExtend => {
@@ -698,7 +735,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             Instruction::Sha3 => {
                 let name = "sha3";
-                warn!("{} is unaudited", name);
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
                 let length = self.build_peek(builder, sp, 2, "length");
@@ -801,7 +837,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             Instruction::CodeCopy => {
                 let name = "codecopy";
-                warn!("codecopy is unaudited");
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
                 let length = self.build_peek(builder, sp, 3, "length");
@@ -832,7 +867,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
             }
             Instruction::Revert => {
                 let name = "revert";
-                warn!("{} is unimplemented", name);
                 self.push_label(name, builder);
                 builder.build_unconditional_branch(self.errbb.unwrap());
             }
@@ -903,8 +937,6 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 builder.build_store(addr_r, value_l);
             }
             Instruction::CallValue => {
-                // TODO: gasless
-                warn!("callvalue is unimpl");
                 let name = "callvalue";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);

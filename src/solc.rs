@@ -1,7 +1,7 @@
 use serde_json;
 use serde::{Deserialize, Serialize};
 use crate::evm::{Disassembly, Instruction};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::process::Command;
 use std::path::PathBuf;
 use uint::rustc_hex::FromHex;
@@ -27,10 +27,10 @@ impl Contract {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Contracts {
-    contracts: HashMap<String, Contract>,
+    contracts: BTreeMap<String, Contract>,
 }
 
-pub fn solc_compile(path: &PathBuf) -> HashMap<String, Contract> {
+pub fn solc_compile(path: &PathBuf) -> BTreeMap<String, Contract> {
     let cmd = Command::new("solc")
             .arg(path)
             .arg("--combined-json")

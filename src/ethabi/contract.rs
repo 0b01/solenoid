@@ -11,8 +11,8 @@ use crate::ethabi::{errors, Constructor, Error, Event, Function};
 use serde::de::{SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use serde_json;
-use std::collections::hash_map::Values;
-use std::collections::HashMap;
+use std::collections::btree_map::Values;
+use std::collections::BTreeMap;
 use std::iter::Flatten;
 use std::{fmt};
 
@@ -22,9 +22,9 @@ pub struct Contract {
 	/// Contract constructor.
 	pub constructor: Option<Constructor>,
 	/// Contract functions.
-	pub functions: HashMap<String, Vec<Function>>,
+	pub functions: BTreeMap<String, Vec<Function>>,
 	/// Contract events, maps signature to event.
-	pub events: HashMap<String, Vec<Event>>,
+	pub events: BTreeMap<String, Vec<Event>>,
 	/// Contract has fallback function.
 	pub fallback: bool,
 }
@@ -52,7 +52,7 @@ impl<'a> Visitor<'a> for ContractVisitor {
 		A: SeqAccess<'a>,
 	{
 		let mut result =
-			Contract { constructor: None, functions: HashMap::default(), events: HashMap::default(), fallback: false };
+			Contract { constructor: None, functions: BTreeMap::default(), events: BTreeMap::default(), fallback: false };
 
 		while let Some(operation) = seq.next_element()? {
 			match operation {

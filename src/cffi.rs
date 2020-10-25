@@ -33,7 +33,8 @@ impl CFFIGenerator {
             "long msg_len".to_owned(),
             "long* ret_offset".to_owned(),
             "long* ret_len".to_owned(),
-            "i8* storage".to_owned()
+            "i8* storage".to_owned(),
+            "i8* caller".to_owned(),
         ];
         self.add_stub(&fn_name, &params);
     }
@@ -45,7 +46,8 @@ impl CFFIGenerator {
             "long msg_len".to_owned(),
             "long* ret_offset".to_owned(),
             "long* ret_len".to_owned(),
-            "i8* storage".to_owned()
+            "i8* storage".to_owned(),
+            "i8* caller".to_owned(),
         ];
         self.add_stub(&fn_name, &params);
     }

@@ -1,5 +1,9 @@
 #include "rt.h"
 
+void revert() {
+    printf("REVERT placeholder called");
+}
+
 /* overwrite key */
 void sload(i8* st, i8* key) {
     // printf("sload called\n");
