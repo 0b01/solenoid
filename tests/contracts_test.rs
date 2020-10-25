@@ -49,3 +49,15 @@ fn test_contract_flipper() {
 
     assert_eq!(expected, output);
 }
+
+#[test]
+fn test_contract_safemath() {
+    let contract = "./tests/contracts/safemath.sol";
+    let main_c = "./tests/main/main_safemath.c";
+
+    let output = test_contract_factory(contract, main_c);
+
+    let expected = r#"000000000000000000000000000000000000000000000000000000000000AAA9"#;
+
+    assert_eq!(expected, output);
+}
