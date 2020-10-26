@@ -180,13 +180,10 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 }
                 Address => {
                     let x = x.into_pointer_value();
-                    let val_ptr = builder.build_pointer_cast(x, self.i256_ty.ptr_type(AddressSpace::Generic), "ptr");
-                    let value = builder.build_load(val_ptr, "value").into_int_value();
+                    len = builder.build_int_add(len, self.i32(12), "len");
                     let ptr = unsafe { builder.build_gep(buf, &[len], "ptr") };
-                    let value = builder.build_int_z_extend(value, self.i256_ty, &param.name);
-                    let ptr = builder.build_pointer_cast(ptr, self.i256_ty.ptr_type(AddressSpace::Generic), "ptr");
-                    builder.build_store(ptr, value);
-                    len = builder.build_int_add(len, self.i32(32), "len");
+                    builder.build_memcpy(ptr, 1, x, 1, self.i32(20));
+                    len = builder.build_int_add(len, self.i32(20), "len");
                 }
                 _ => {
                     error!("unimpl {:?}", &param.kind);
@@ -694,10 +691,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let name = "caller";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let addr = self.fun.unwrap().get_nth_param(5).unwrap().into_pointer_value();
-                let addr = builder.build_pointer_cast(addr, self.i256_ty.ptr_type(AddressSpace::Generic), "caller");
-                let value = builder.build_load(addr, "caller").into();
-                self.build_push(builder, value, sp);
+                let tos = self.build_tos_ptr(builder, 0);
+                let x = self.fun.unwrap().get_nth_param(5).unwrap().into_pointer_value();
+                let ptr = unsafe { builder.build_gep(tos, &[self.i32(12)], "ptr") };
+                builder.build_memcpy(ptr, 1, x, 1, self.i32(20));
+                builder.build_call(self.swap_endianness(), &[tos.into()], "pos");
+                self.build_incr(builder, sp, 1);
             }
             Instruction::CodeSize => {
                 let name = "codesize";
@@ -1060,10 +1059,11 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let n_ptr = self.build_tos_ptr(builder, 1);
                 let q_ptr = self.build_tos_ptr(builder, 0);
                 builder.build_call(self.udiv256(), &[n_ptr.into(), d_ptr.into(), q_ptr.into()], "div");
-
-                let ret = builder.build_load(q_ptr, "ret");
-                builder.build_store(d_ptr, ret);
-                self.build_decr(builder, sp, 1);
+                let sp = self.build_incr(builder, sp, 1);
+                let (value, sp) = self.build_pop(builder, sp);
+                let (_, sp) = self.build_pop(builder, sp);
+                let (_, sp) = self.build_pop(builder, sp);
+                self.build_push(builder, value.into(), sp);
             }
             Instruction::Mod => {
                 let name = "mod";

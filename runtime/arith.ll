@@ -1,16 +1,14 @@
-
-; typedef _ExtInt(256) I;
-; void udiv256(I n, I d, I* q) {
+; void udiv256(I *n, I *d, I* q) {
 ;     *q = 0;
-;     while (n >= d) {
-;         I i = 0, d_t = d;
-;         while (n >= (d_t << 1) && ++i)
+;     while (*n >= *d) {
+;         I i = 0, d_t = *d;
+;         while (*n >= (d_t << (I)1) && ++i)
 ;             d_t <<= 1;
 ;         *q |= (I)1 << i;
-;         n -= d_t;
+;         *n -= d_t;
 ;     }
 ; }
-define dso_local void @udiv256(i256*, i256*, i256*) {
+define dso_local void @udiv256(i256* nocapture %0, i256* nocapture readonly %1, i256* nocapture %2) local_unnamed_addr #0 {
   store i256 0, i256* %2, align 8
   %4 = load i256, i256* %0, align 8
   %5 = load i256, i256* %1, align 8

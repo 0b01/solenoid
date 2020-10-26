@@ -62,7 +62,7 @@ void dump_storage() {
 void dump_stack(i8* label, int sp, int pc, i8* stack, i8* mem) {
     #ifndef SOLANA
     printf("----%s----\nstack:(%ld)@%ld\n", label, sp, pc);
-    int top = 10;
+    int top = 20;
     int size = top > 0 ? top * 32 : (1024 * 256 / 8);
     for (int i = 0; i < size; i += 32) {
         i8* arrow = (sp * 32) == i ? (i8*)" ->" : (i8*)"   ";

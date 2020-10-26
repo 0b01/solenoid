@@ -312,3 +312,52 @@ fn test_arith() {
         Instruction::Mul,
     ]), &[vec![20]]);
 }
+
+#[test]
+fn test_sha3() {
+    let expected = "967f2a2c7f3d22f9278175c1e6aa39cf9171db91dceacd5ee0f37c2e507b5abe".from_hex().unwrap();
+    assert_stack(&compile_and_run(&[
+        Instruction::Push(vec![0x10]),
+        Instruction::Push(vec![0]),
+        Instruction::MStore,
+        Instruction::Push(vec![1]),
+        Instruction::Push(vec![0]),
+        Instruction::Sha3,
+    ]), &[expected]);
+
+    let expected = "0552ab8dc52e1cf9328ddb97e0966b9c88de9cca97f48b0110d7800982596158".from_hex().unwrap();
+    assert_stack(&compile_and_run(&[
+        Instruction::Push(vec![0x11]),
+        Instruction::Push(vec![0]),
+        Instruction::MStore,
+        Instruction::Push(vec![1]),
+        Instruction::Push(vec![0]),
+        Instruction::Sha3,
+    ]), &[expected]);
+
+    let expected = "5fa2358263196dbbf23d1ca7a509451f7a2f64c15837bfbb81298b1e3e24e4fa".from_hex().unwrap();
+    assert_stack(&compile_and_run(&[
+        Instruction::Push(vec![0x12]),
+        Instruction::Push(vec![0]),
+        Instruction::MStore,
+        Instruction::Push(vec![1]),
+        Instruction::Push(vec![0]),
+        Instruction::Sha3,
+    ]), &[expected]);
+}
+
+#[test]
+fn test_caller() {
+    assert_stack(&compile_and_run(&[
+        Instruction::Caller,
+    ]), &[vec![0xAA,0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xBB, 0xAA ]]);
+}
+
+#[test]
+fn test_div() {
+    assert_stack(&compile_and_run(&[
+        Instruction::Push(vec![0x1]),
+        Instruction::Push(vec![0xAA, 0x00]),
+        Instruction::Div,
+    ]), &[vec![0xAA, 0x00]]);
+}

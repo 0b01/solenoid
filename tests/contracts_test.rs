@@ -61,3 +61,17 @@ fn test_contract_safemath() {
 
     assert_eq!(expected, output);
 }
+
+#[test]
+fn test_contract_address() {
+    let contract = "./tests/contracts/address.sol";
+    let main_c = "./tests/main/main_address.c";
+
+    let output = test_contract_factory(contract, main_c);
+
+    let expected = r#"000000000000000000000000AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA00
+000000000000000000000000CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC00
+"#;
+
+    assert_eq!(expected, output);
+}
