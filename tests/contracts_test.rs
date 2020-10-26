@@ -75,3 +75,18 @@ fn test_contract_address() {
 
     assert_eq!(expected, output);
 }
+
+#[test]
+fn test_contract_erc20() {
+    let contract = "./tests/contracts/erc20.sol";
+    let main_c = "./tests/main/main_erc20.c";
+
+    let output = test_contract_factory(contract, main_c);
+
+    let expected = r#"000000000000000000000000000000000000000000000000000000000000AAAA
+0000000000000000000000000000000000000000000000000000000000000001
+000000000000000000000000000000000000000000000000000000000000AAA9
+"#;
+
+    assert_eq!(expected, output);
+}

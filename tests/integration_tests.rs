@@ -325,22 +325,15 @@ fn test_sha3() {
         Instruction::Sha3,
     ]), &[expected]);
 
-    let expected = "0552ab8dc52e1cf9328ddb97e0966b9c88de9cca97f48b0110d7800982596158".from_hex().unwrap();
+    let expected = "9f89faaf1495298300ca41edde79c5cc9cb9bf17e1c9ef97acfdc53194f901e1".from_hex().unwrap();
     assert_stack(&compile_and_run(&[
-        Instruction::Push(vec![0x11]),
+        Instruction::Push(vec![0xAA;32]),
         Instruction::Push(vec![0]),
         Instruction::MStore,
-        Instruction::Push(vec![1]),
-        Instruction::Push(vec![0]),
-        Instruction::Sha3,
-    ]), &[expected]);
-
-    let expected = "5fa2358263196dbbf23d1ca7a509451f7a2f64c15837bfbb81298b1e3e24e4fa".from_hex().unwrap();
-    assert_stack(&compile_and_run(&[
-        Instruction::Push(vec![0x12]),
-        Instruction::Push(vec![0]),
+        Instruction::Push(vec![0xBB;32]),
+        Instruction::Push(vec![0x20]),
         Instruction::MStore,
-        Instruction::Push(vec![1]),
+        Instruction::Push(vec![64]),
         Instruction::Push(vec![0]),
         Instruction::Sha3,
     ]), &[expected]);
@@ -350,7 +343,7 @@ fn test_sha3() {
 fn test_caller() {
     assert_stack(&compile_and_run(&[
         Instruction::Caller,
-    ]), &[vec![0xAA,0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xBB, 0xAA ]]);
+    ]), &[vec![0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xAA,0xBB, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA]]);
 }
 
 #[test]

@@ -691,12 +691,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let name = "caller";
                 self.push_label(name, builder);
                 let sp = self.build_sp(builder);
-                let tos = self.build_tos_ptr(builder, 0);
+                let sp = self.build_push(builder, self.i256(0).into(), sp);
+                let tos = self.build_tos_ptr(builder, 1);
                 let x = self.fun.unwrap().get_nth_param(5).unwrap().into_pointer_value();
                 let ptr = unsafe { builder.build_gep(tos, &[self.i32(12)], "ptr") };
                 builder.build_memcpy(ptr, 1, x, 1, self.i32(20));
                 builder.build_call(self.swap_endianness(), &[tos.into()], "pos");
-                self.build_incr(builder, sp, 1);
             }
             Instruction::CodeSize => {
                 let name = "codesize";
@@ -799,8 +799,12 @@ impl<'a, 'ctx> Compiler<'a, 'ctx> {
                 let value = builder.build_and(rr, self.i256(0xFF), "ret").into();
                 self.build_push(builder, value, sp);
             }
-            Instruction::Log(_) => {
+            Instruction::Log(n) => {
+                let name = "log";
+                self.push_label(name, builder);
                 error!("Event emission is unimpl: {:?}", instr);
+                let sp = self.build_sp(builder);
+                self.build_decr(builder, sp, *n as u64 + 2);
             }
             Instruction::Stop => {
                 let name = "stop";

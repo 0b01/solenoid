@@ -12,9 +12,10 @@ void sload(i8* st, i8* key) {
     for (int i = 0; i < 1024 * 64; i += 64) {
         if (cmp(st + i, key)) {
             cpy(key, st+i+32);
-            break;
+            return;
         }
     }
+    memset(key, 0, 32);
 }
 
 void sstore(i8* st, i8* key, i8* val) {
@@ -322,7 +323,13 @@ void keccak_final(SHA3_CTX *ctx, i8* result)
 }
 
 void keccak256(const i8 *msg, uint16_t size, i8* result) {
-    inplace_reverse((i8*)msg, size);
+    if (size < 32) {
+        inplace_reverse(msg, size);
+    } else {
+        for (int i = 0; i < size; i += 32) {
+            inplace_reverse(msg + i, 32);
+        }
+    }
 
     SHA3_CTX ctx;
     keccak_init(&ctx);
@@ -330,6 +337,13 @@ void keccak256(const i8 *msg, uint16_t size, i8* result) {
     keccak_final(&ctx, result);
 
     inplace_reverse(result, 32);
+    if (size < 32) {
+        inplace_reverse(msg, size);
+    } else {
+        for (int i = 0; i < size; i += 32) {
+            inplace_reverse(msg + i, 32);
+        }
+    }
 }
 
 
